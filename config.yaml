@@ -1,0 +1,51 @@
+logging:
+  # Default behavior if no rules match
+  default: false
+
+  # Rules for what to log, processed in order
+  rules:
+    - name: "Log API requests"
+      match_conditions:
+        # All conditions in a rule must match to log
+        path:
+          # Regex patterns for path matching
+          patterns:
+            - "/anything.*"
+        methods:
+          - "POST"
+          - "PUT"
+        headers:
+          # Required headers and their values (regex)
+          "content-type": "application/json.*"
+      capture:
+        # What to capture in logs when rule matches
+        headers:
+          - "content-type"
+          - "user-agent"
+        body: true
+        method: true
+        path: true
+        timing: true
+
+    - name: "Log health checks"
+      match_conditions:
+        path:
+          patterns:
+            - "^/health$"
+      capture:
+        timing: true
+        method: true
+
+    - name: "Local Test"
+      match_conditions:
+        path:
+          patterns:
+            - ".*"
+      capture:
+        timing: true
+        method: true
+        path: true
+        headers:
+          - "content-type"
+          - "user-agent"
+        body: true
