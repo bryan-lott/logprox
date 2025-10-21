@@ -80,3 +80,13 @@ drop:
       response:
         status_code: 403
         body: "Access denied."
+
+    - name: "Drop requests with malicious scripts"
+      match_conditions:
+        body:
+          patterns:
+            - "<script>.*</script>"
+            - "javascript:"
+      response:
+        status_code: 400
+        body: "Malicious content detected in request body."

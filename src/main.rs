@@ -5,7 +5,7 @@ TODO's
 - [x] Add environment variable substitution in config values
 - [x] Add dropping requests based on config
    - [x] Headers
-   - [ ] Body
+   - [x] Body
    - [x] Request method
    - [x] Request path
 - [ ] Add injection of additional headers based on config
@@ -122,21 +122,28 @@ async fn proxy_handler(State(config): State<Arc<ConfigHolder>>, req: Request) ->
     let headers = req.headers().clone();
     let uri = req.uri().clone();
 
-    // Check if request should be dropped
-    if let Some(drop_response) = config.get().should_drop_request(&req) {
-        return Response::builder()
-            .status(drop_response.status_code)
-            .body(Body::from(drop_response.body.clone().unwrap_or_default()))
-            .unwrap();
-    }
-
-    // Capture request body
+    // Capture request body FIRST (needed for body matching)
     let request_body_bytes = axum::body::to_bytes(req.into_body(), usize::MAX)
         .await
         .unwrap();
     let request_body = String::from_utf8(request_body_bytes.clone().to_vec())
         .map(|s| s.to_string())
         .unwrap_or_else(|e| format!("<invalid UTF-8: {}>", e));
+
+    // Create a request for matching (without body since we consumed it)
+    let match_req = axum::http::Request::builder()
+        .method(method.clone())
+        .uri(uri.clone())
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    // Check if request should be dropped (now includes body matching)
+    if let Some(drop_response) = config.get().should_drop_request(&match_req, &request_body) {
+        return Response::builder()
+            .status(drop_response.status_code)
+            .body(Body::from(drop_response.body.clone().unwrap_or_default()))
+            .unwrap();
+    }
 
     // Forward the request using reqwest
     let client = reqwest::Client::new();
@@ -190,18 +197,18 @@ async fn proxy_handler(State(config): State<Arc<ConfigHolder>>, req: Request) ->
         let config = config.clone();
         let headers = headers.clone();
         async move {
-            let should_log = {
+            let should_log_capture = {
                 let config = config.get();
                 let req = Request::builder()
                     .method(method.clone())
                     .uri(uri)
                     .body(Body::empty())
                     .unwrap();
-                config.should_log_request(&req).cloned()
+                config.should_log_request(&req, &request_body).cloned()
             };
 
             // Only log if the request matches our rules
-            if let Some(_capture_config) = should_log {
+            if let Some(_capture_config) = should_log_capture {
                 info!(
                     request.method = %method,
                     request.uri = %target_url,
