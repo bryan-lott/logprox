@@ -2,8 +2,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct ServerConfig {
+    #[serde(default = "default_port")]
+    pub port: u16,
+    #[serde(default = "default_config_file")]
+    pub config_file: String,
+}
+
+fn default_port() -> u16 { 3000 }
+fn default_config_file() -> String { "config.yaml".to_string() }
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default)]
+    pub server: ServerConfig,
     pub logging: LoggingConfig,
     pub drop: DropConfig,
 }
@@ -104,7 +117,25 @@ impl ConfigHolder {
 impl Config {
     pub fn from_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let f = std::fs::File::open(path)?;
-        Ok(serde_yaml::from_reader(f)?)
+        let mut config: Config = serde_yaml::from_reader(f)?;
+        config.substitute_env_vars();
+        Ok(config)
+    }
+
+    fn substitute_env_vars(&mut self) {
+        for rule in &mut self.drop.rules {
+            if let Some(ref mut body) = rule.response.body {
+                *body = Self::substitute_env_in_string(body);
+            }
+        }
+    }
+
+    fn substitute_env_in_string(s: &str) -> String {
+        let re = regex::Regex::new(r"\$\{([^}]+)\}").unwrap();
+        re.replace_all(s, |caps: &regex::Captures| {
+            let var_name = &caps[1];
+            std::env::var(var_name).unwrap_or_else(|_| format!("${{{}}}", var_name))
+        }).to_string()
     }
 
     pub fn should_log_request(&self, req: &axum::extract::Request) -> Option<&CaptureConfig> {
@@ -206,6 +237,10 @@ mod tests {
     #[test]
     fn test_config_yaml() {
         let config = Config::from_file("config.yaml").unwrap();
+
+        // Verify server config
+        assert_eq!(config.server.port, 3000);
+        assert_eq!(config.server.config_file, "config.yaml");
 
         // Verify logging rules
         assert_eq!(config.logging.default, false);
@@ -409,6 +444,7 @@ mod tests {
     fn test_should_drop_request_default() {
         // Create config with drop default true
         let config = Config {
+            server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
             logging: LoggingConfig { default: false, rules: vec![] },
             drop: DropConfig {
                 default: true,
@@ -432,6 +468,7 @@ mod tests {
     #[test]
     fn test_config_holder() {
         let initial_config = Config {
+            server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
             logging: LoggingConfig { default: false, rules: vec![] },
             drop: DropConfig { default: false, rules: vec![] },
         };
@@ -446,5 +483,18 @@ mod tests {
         // Test reloading (should succeed with existing config.yaml)
         let reload_result = holder.reload();
         assert!(reload_result.is_ok());
+    }
+
+    #[test]
+    fn test_env_substitution() {
+        std::env::set_var("TEST_SECRET", "replaced_value");
+        let result = Config::substitute_env_in_string("prefix ${TEST_SECRET} suffix");
+        assert_eq!(result, "prefix replaced_value suffix");
+
+        // Test missing var
+        let result2 = Config::substitute_env_in_string("no ${MISSING_VAR} here");
+        assert_eq!(result2, "no ${MISSING_VAR} here");
+
+        std::env::remove_var("TEST_SECRET");
     }
 }

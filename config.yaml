@@ -1,3 +1,8 @@
+server:
+  # Server configuration
+  port: 3000
+  config_file: config.yaml
+
 logging:
   # Default behavior if no rules match
   default: false

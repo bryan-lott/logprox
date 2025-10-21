@@ -23,6 +23,28 @@ LogProx offers a solution. Place it between any internal callers and the externa
 - [ ] GET endpoint returning the configuration documentation
 - [ ] Conditionally log responses
 
+## Configuration
+
+LogProx can be configured via a YAML config file (default: `config.yaml`) and environment variables.
+
+### Environment Variables
+
+- `PORT`: Server port (default: 3000)
+- `CONFIG_FILE`: Path to config file (default: config.yaml)
+
+### Config File
+
+The config file supports environment variable substitution using `${VAR_NAME}` syntax. For example:
+
+```yaml
+drop:
+  rules:
+    - name: "API Key Required"
+      response:
+        status_code: 401
+        body: "API Key ${API_KEY} required"
+```
+
 ## Authors
 
 - [@bryan-lott](https://www.github.com/bryan-lott)
