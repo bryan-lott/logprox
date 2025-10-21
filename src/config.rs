@@ -189,6 +189,19 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::{HeaderMap, Method, Uri};
+
+    fn create_test_request(method: Method, path: &str, headers: Vec<(&str, &str)>) -> axum::extract::Request {
+        let mut req_builder = axum::http::Request::builder()
+            .method(method)
+            .uri(Uri::try_from(path).unwrap());
+
+        for (key, value) in headers {
+            req_builder = req_builder.header(key, value);
+        }
+
+        req_builder.body(axum::body::Body::empty()).unwrap()
+    }
 
     #[test]
     fn test_config_yaml() {
@@ -253,5 +266,185 @@ mod tests {
         assert!(!health_rule.capture.body);
         assert!(!health_rule.capture.path);
         assert!(health_rule.capture.headers.is_empty());
+    }
+
+    #[test]
+    fn test_should_log_request() {
+        let config = Config::from_file("config.yaml").unwrap();
+
+        // Test matching API request
+        let api_req = create_test_request(
+            Method::POST,
+            "/anything/test",
+            vec![("content-type", "application/json")],
+        );
+        assert!(config.should_log_request(&api_req).is_some());
+
+        // Test matching health check
+        let health_req = create_test_request(Method::GET, "/health", vec![]);
+        assert!(config.should_log_request(&health_req).is_some());
+
+        // Test matching local test rule (matches .* path)
+        let other_req = create_test_request(Method::GET, "/no-match", vec![]);
+        assert!(config.should_log_request(&other_req).is_some());
+    }
+
+    #[test]
+    fn test_should_drop_request() {
+        let config = Config::from_file("config.yaml").unwrap();
+
+        // Test matching deprecated API
+        let deprecated_req = create_test_request(Method::GET, "/api/v1/deprecated/old", vec![]);
+        let drop_resp = config.should_drop_request(&deprecated_req).unwrap();
+        assert_eq!(drop_resp.status_code, 410);
+        assert!(drop_resp.body.is_some());
+
+        // Test matching unauthorized admin
+        let admin_req = create_test_request(
+            Method::GET,
+            "/admin/dashboard",
+            vec![("authorization", "Bearer token")],
+        );
+        let drop_resp = config.should_drop_request(&admin_req).unwrap();
+        assert_eq!(drop_resp.status_code, 403);
+
+        // Test non-matching request
+        let normal_req = create_test_request(Method::GET, "/api/v2/normal", vec![]);
+        assert!(config.should_drop_request(&normal_req).is_none());
+    }
+
+    #[test]
+    fn test_matches_rule_method() {
+        let config = Config::from_file("config.yaml").unwrap();
+
+        // Test method match
+        let post_req = create_test_request(Method::POST, "/test", vec![]);
+        let conditions = MatchConditions {
+            path: PathMatch { patterns: vec![] },
+            methods: vec!["POST".to_string()],
+            headers: HashMap::new(),
+            body: BodyMatch { patterns: vec![] },
+        };
+        assert!(config.matches_rule(&post_req, &conditions));
+
+        // Test method no match
+        let get_req = create_test_request(Method::GET, "/test", vec![]);
+        assert!(!config.matches_rule(&get_req, &conditions));
+    }
+
+    #[test]
+    fn test_matches_rule_path() {
+        let config = Config::from_file("config.yaml").unwrap();
+
+        // Test path regex match
+        let req = create_test_request(Method::GET, "/health", vec![]);
+        let conditions = MatchConditions {
+            path: PathMatch { patterns: vec!["^/health$".to_string()] },
+            methods: vec![],
+            headers: HashMap::new(),
+            body: BodyMatch { patterns: vec![] },
+        };
+        assert!(config.matches_rule(&req, &conditions));
+
+        // Test path no match
+        let req2 = create_test_request(Method::GET, "/nothealth", vec![]);
+        assert!(!config.matches_rule(&req2, &conditions));
+    }
+
+    #[test]
+    fn test_matches_rule_headers() {
+        let config = Config::from_file("config.yaml").unwrap();
+
+        // Test header match
+        let req = create_test_request(Method::GET, "/test", vec![("content-type", "application/json")]);
+        let mut headers = HashMap::new();
+        headers.insert("content-type".to_string(), "application/json.*".to_string());
+        let conditions = MatchConditions {
+            path: PathMatch { patterns: vec![] },
+            methods: vec![],
+            headers,
+            body: BodyMatch { patterns: vec![] },
+        };
+        assert!(config.matches_rule(&req, &conditions));
+
+        // Test header no match
+        let req2 = create_test_request(Method::GET, "/test", vec![("content-type", "text/plain")]);
+        assert!(!config.matches_rule(&req2, &conditions));
+
+        // Test missing header
+        let req3 = create_test_request(Method::GET, "/test", vec![]);
+        assert!(!config.matches_rule(&req3, &conditions));
+    }
+
+    #[test]
+    fn test_matches_rule_combined_conditions() {
+        let config = Config::from_file("config.yaml").unwrap();
+
+        // Test all conditions match
+        let req = create_test_request(
+            Method::POST,
+            "/anything/test",
+            vec![("content-type", "application/json")],
+        );
+        let mut headers = HashMap::new();
+        headers.insert("content-type".to_string(), "application/json.*".to_string());
+        let conditions = MatchConditions {
+            path: PathMatch { patterns: vec!["/anything.*".to_string()] },
+            methods: vec!["POST".to_string()],
+            headers,
+            body: BodyMatch { patterns: vec![] },
+        };
+        assert!(config.matches_rule(&req, &conditions));
+
+        // Test one condition fails
+        let req2 = create_test_request(
+            Method::GET,
+            "/anything/test",
+            vec![("content-type", "application/json")],
+        );
+        assert!(!config.matches_rule(&req2, &conditions));
+    }
+
+    #[test]
+    fn test_should_drop_request_default() {
+        // Create config with drop default true
+        let config = Config {
+            logging: LoggingConfig { default: false, rules: vec![] },
+            drop: DropConfig {
+                default: true,
+                rules: vec![],
+            },
+        };
+
+        let req = create_test_request(Method::GET, "/any", vec![]);
+        let drop_resp = config.should_drop_request(&req).unwrap();
+        assert_eq!(drop_resp.status_code, 403);
+        assert!(drop_resp.body.is_some());
+    }
+
+    #[test]
+    fn test_config_from_file_invalid() {
+        // Test with invalid YAML
+        let result = Config::from_file("nonexistent.yaml");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_config_holder() {
+        let initial_config = Config {
+            logging: LoggingConfig { default: false, rules: vec![] },
+            drop: DropConfig { default: false, rules: vec![] },
+        };
+        let holder = ConfigHolder::new(initial_config);
+
+        // Test getting config
+        {
+            let config = holder.get();
+            assert_eq!(config.logging.default, false);
+        }
+
+        // Test reloading (should succeed with existing config.yaml)
+        let reload_result = holder.reload();
+        assert!(reload_result.is_ok());
     }
 }

@@ -8,6 +8,7 @@ edition = "2021"
 tokio = { version = "1.36", features = ["full"] }
 axum = { version = "0.7", features = ["macros"] }
 reqwest = { version = "0.11", features = ["json"] }
+tower = "0.5"
 
 # Basic logging
 tracing = "0.1"
@@ -18,3 +19,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 regex = "1.5"
 serde_json = "1.0"
+
+# Testing
+tempfile = "3.17"
