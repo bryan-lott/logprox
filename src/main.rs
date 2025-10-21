@@ -396,8 +396,8 @@ drop:
         let resp = app.oneshot(req).await.unwrap();
         let duration = start.elapsed();
 
-        // Should complete in under 100ms (very fast for drop requests)
-        assert!(duration < std::time::Duration::from_millis(100),
+        // Should complete in under 5ms (exceptionally fast for drop requests)
+        assert!(duration < std::time::Duration::from_millis(5),
                 "Drop request took too long: {:?}", duration);
 
         // Should get the expected response
@@ -446,8 +446,8 @@ drop:
             let resp = app.oneshot(req).await.unwrap();
             let proxy_duration = proxy_start.elapsed();
 
-            // Drop requests should complete in under 10ms (microseconds range)
-            assert!(proxy_duration < std::time::Duration::from_millis(10),
+            // Drop requests should complete in under 5ms (exceptionally fast)
+            assert!(proxy_duration < std::time::Duration::from_millis(5),
                     "Drop request took too long on iteration {}: {:?}", i, proxy_duration);
 
             // Verify it was actually dropped
