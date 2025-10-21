@@ -25,7 +25,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post, Router},
 };
-use config::{Config, ConfigHolder, DropConfig, DropResponse, DropRule, LoggingConfig, MatchConditions, PathMatch, BodyMatch, ServerConfig};
+use config::{Config, ConfigHolder, ServerConfig, LoggingConfig, DropConfig, DropRule, MatchConditions, PathMatch, BodyMatch, DropResponse};
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
