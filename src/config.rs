@@ -5,12 +5,33 @@ use std::sync::RwLock;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub logging: LoggingConfig,
+    pub drop: DropConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LoggingConfig {
     pub default: bool,
     pub rules: Vec<LoggingRule>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DropConfig {
+    pub default: bool,
+    pub rules: Vec<DropRule>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DropRule {
+    pub name: String,
+    pub match_conditions: MatchConditions,
+    pub response: DropResponse,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DropResponse {
+    pub status_code: u16,
+    #[serde(default)]
+    pub body: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -106,6 +127,22 @@ impl Config {
         }
     }
 
+    pub fn should_drop_request(&self, req: &axum::extract::Request) -> Option<DropResponse> {
+        for rule in &self.drop.rules {
+            if self.matches_rule(req, &rule.match_conditions) {
+                return Some(rule.response.clone());
+            }
+        }
+        if self.drop.default {
+            Some(DropResponse {
+                status_code: 403,
+                body: Some("Request dropped by default".to_string()),
+            })
+        } else {
+            None
+        }
+    }
+
     fn matches_rule(&self, req: &axum::extract::Request, conditions: &MatchConditions) -> bool {
         // Check method
         if !conditions.methods.is_empty()
@@ -159,7 +196,26 @@ mod tests {
 
         // Verify logging rules
         assert_eq!(config.logging.default, false);
-        assert_eq!(config.logging.rules.len(), 2);
+        assert_eq!(config.logging.rules.len(), 3);
+
+        // Verify drop rules
+        assert_eq!(config.drop.default, false);
+        assert_eq!(config.drop.rules.len(), 2);
+
+        // Check first drop rule - deprecated API
+        let deprecated_rule = &config.drop.rules[0];
+        assert_eq!(deprecated_rule.name, "Drop deprecated API calls");
+        assert_eq!(deprecated_rule.match_conditions.path.patterns, vec!["/api/v1/deprecated.*"]);
+        assert_eq!(deprecated_rule.response.status_code, 410);
+        assert_eq!(deprecated_rule.response.body, Some("This API endpoint has been deprecated and is no longer supported.".to_string()));
+
+        // Check second drop rule - unauthorized
+        let unauthorized_rule = &config.drop.rules[1];
+        assert_eq!(unauthorized_rule.name, "Drop unauthorized requests");
+        assert_eq!(unauthorized_rule.match_conditions.headers.get("authorization").unwrap(), ".*");
+        assert_eq!(unauthorized_rule.match_conditions.path.patterns, vec!["/admin.*"]);
+        assert_eq!(unauthorized_rule.response.status_code, 403);
+        assert_eq!(unauthorized_rule.response.body, Some("Access denied.".to_string()));
 
         // Check first rule - API requests
         let api_rule = &config.logging.rules[0];

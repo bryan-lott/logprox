@@ -2,12 +2,11 @@
 TODO's
 - [x] Add a health check endpoint
 - [x] Add configuration by config file or environment variables
-- [ ] Add dropping requests based on config
-- [x] Add logging requests based on config (inclusion/exclusion)
-  - [x] Headers
-  - [ ] Body
-  - [x] Request method
-  - [x] Request path
+- [x] Add dropping requests based on config
+   - [x] Headers
+   - [ ] Body
+   - [x] Request method
+   - [x] Request path
 - [ ] Add injection of additional headers based on config
 - [x] Add reloading the config file on a POST
 - [x] Add a get endpoint for returning the current config
@@ -113,6 +112,14 @@ async fn proxy_handler(State(config): State<Arc<ConfigHolder>>, req: Request) ->
     let method = req.method().clone();
     let headers = req.headers().clone();
     let uri = req.uri().clone();
+
+    // Check if request should be dropped
+    if let Some(drop_response) = config.get().should_drop_request(&req) {
+        return Response::builder()
+            .status(drop_response.status_code)
+            .body(Body::from(drop_response.body.clone().unwrap_or_default()))
+            .unwrap();
+    }
 
     // Capture request body
     let request_body_bytes = axum::body::to_bytes(req.into_body(), usize::MAX)
