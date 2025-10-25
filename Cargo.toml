@@ -2,6 +2,26 @@
 name = "logprox"
 version = "0.1.0"
 edition = "2021"
+authors = ["Bryan Lott <bryan@bryanlott.dev>"]
+description = "A blazing-fast HTTP proxy with conditional logging and request control"
+license = "GPL-3.0"
+homepage = "https://github.com/bryan-lott/logprox"
+repository = "https://github.com/bryan-lott/logprox"
+documentation = "https://docs.rs/logprox"
+readme = "README.md"
+keywords = ["proxy", "http", "logging", "monitoring", "api-gateway"]
+categories = ["web-programming::http-server", "network-programming"]
+exclude = [
+    "config.yaml",
+    "config_docs.md",
+    ".github/",
+    "benches/",
+    "tests/",
+]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 name = "logprox"
