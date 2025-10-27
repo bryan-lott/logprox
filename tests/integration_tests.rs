@@ -1,7 +1,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use logprox::config::{Config, ConfigHolder, ServerConfig, LoggingConfig, DropConfig, DropRule, MatchConditions, PathMatch, BodyMatch, DropResponse};
+use logprox::config::{Config, ConfigHolder, ServerConfig, LoggingConfig, DropConfig, DropRule, MatchConditions, PathMatch, BodyMatch, DropResponse, ResponseLoggingConfig};
 use logprox::{get_config, get_config_docs, get_health_check, proxy_handler, reload_config};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,6 +13,7 @@ async fn test_health_check() {
         server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
+        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
     }));
     let app = Router::new()
         .route("/health", axum::routing::get(get_health_check))
@@ -37,6 +38,7 @@ async fn test_get_config() {
         server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
+        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
     }));
     let app = Router::new()
         .route("/config", axum::routing::get(get_config))
@@ -74,6 +76,7 @@ drop:
         server: ServerConfig { port: 3000, config_file: "nonexistent.yaml".to_string() },
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
+        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
     }));
     let app = Router::new()
         .route("/config/reload", axum::routing::post(reload_config))
@@ -96,6 +99,7 @@ async fn test_get_config_docs() {
         server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
+        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
     }));
 
     let app = Router::new()
@@ -139,10 +143,11 @@ async fn test_proxy_handler_drop_request() {
                 },
                 response: DropResponse {
                     status_code: 403,
-                    body: Some("Dropped".to_string()),
+                     body: Some("Dropped".to_string()),
                 },
             }],
         },
+        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
     }));
 
     let app = Router::new()
@@ -181,10 +186,11 @@ async fn test_proxy_latency_baseline() {
                 },
                 response: DropResponse {
                     status_code: 200,
-                    body: Some("OK".to_string()),
+                     body: Some("OK".to_string()),
                 },
             }],
         },
+        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
     }));
 
     let app = Router::new()
@@ -230,10 +236,11 @@ async fn test_proxy_no_significant_overhead() {
                 },
                 response: DropResponse {
                     status_code: 403,
-                    body: Some("Fast drop".to_string()),
+                     body: Some("Fast drop".to_string()),
                 },
             }],
         },
+        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
     }));
 
     // Test multiple drop requests to ensure consistent fast performance

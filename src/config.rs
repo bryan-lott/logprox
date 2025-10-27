@@ -19,6 +19,8 @@ pub struct Config {
     pub server: ServerConfig,
     pub logging: LoggingConfig,
     pub drop: DropConfig,
+    #[serde(default)]
+    pub response_logging: ResponseLoggingConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -86,6 +88,43 @@ pub struct CaptureConfig {
     pub method: bool,
     #[serde(default)]
     pub path: bool,
+    #[serde(default)]
+    pub timing: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct ResponseLoggingConfig {
+    #[serde(default)]
+    pub default: bool,
+    #[serde(default)]
+    pub rules: Vec<ResponseLoggingRule>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResponseLoggingRule {
+    pub name: String,
+    pub match_conditions: ResponseMatchConditions,
+    pub capture: ResponseCaptureConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResponseMatchConditions {
+    #[serde(default)]
+    pub status_codes: Vec<u16>,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    #[serde(default)]
+    pub body: BodyMatch,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ResponseCaptureConfig {
+    #[serde(default)]
+    pub headers: Vec<String>,
+    #[serde(default)]
+    pub body: bool,
+    #[serde(default)]
+    pub status_code: bool,
     #[serde(default)]
     pub timing: bool,
 }
@@ -204,6 +243,61 @@ impl Config {
         // Check headers
         for (header_name, pattern) in &conditions.headers {
             if let Some(header_value) = req.headers().get(header_name) {
+                if let Ok(header_str) = header_value.to_str() {
+                    if let Ok(re) = regex::Regex::new(pattern) {
+                        if !re.is_match(header_str) {
+                            return false;
+                        }
+                    }
+                }
+            } else {
+                return false;
+            }
+        }
+
+        // Check body
+        if !conditions.body.patterns.is_empty() {
+            let matches = conditions.body.patterns.iter().any(|pattern| {
+                regex::Regex::new(pattern)
+                    .map(|re| re.is_match(body_content))
+                    .unwrap_or(false)
+            });
+            if !matches {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    pub fn should_log_response(&self, status_code: u16, headers: &axum::http::HeaderMap, body_content: &str) -> Option<&ResponseCaptureConfig> {
+        for rule in &self.response_logging.rules {
+            if self.matches_response_rule(status_code, headers, body_content, &rule.match_conditions) {
+                return Some(&rule.capture);
+            }
+        }
+        if self.response_logging.default {
+            static DEFAULT_RESPONSE_CAPTURE: ResponseCaptureConfig = ResponseCaptureConfig {
+                headers: vec![],
+                body: true,
+                status_code: true,
+                timing: true,
+            };
+            Some(&DEFAULT_RESPONSE_CAPTURE)
+        } else {
+            None
+        }
+    }
+
+    pub fn matches_response_rule(&self, status_code: u16, headers: &axum::http::HeaderMap, body_content: &str, conditions: &ResponseMatchConditions) -> bool {
+        // Check status code
+        if !conditions.status_codes.is_empty() && !conditions.status_codes.contains(&status_code) {
+            return false;
+        }
+
+        // Check headers
+        for (header_name, pattern) in &conditions.headers {
+            if let Some(header_value) = headers.get(header_name) {
                 if let Ok(header_str) = header_value.to_str() {
                     if let Ok(re) = regex::Regex::new(pattern) {
                         if !re.is_match(header_str) {

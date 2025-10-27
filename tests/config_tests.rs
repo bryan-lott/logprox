@@ -256,10 +256,8 @@ fn test_should_drop_request_default() {
     let config = Config {
         server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
         logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig {
-            default: true,
-            rules: vec![],
-        },
+        drop: DropConfig { default: true, rules: vec![] },
+        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
     };
 
     let req = create_test_request(Method::GET, "/any", vec![]);
@@ -281,6 +279,7 @@ fn test_config_holder() {
         server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
+        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
     };
     let holder = ConfigHolder::new(initial_config);
 
@@ -306,4 +305,86 @@ fn test_env_substitution() {
     assert_eq!(result2, "no ${MISSING_VAR} here");
 
     std::env::remove_var("TEST_SECRET");
+}
+
+#[test]
+fn test_should_log_response() {
+    let config = Config::from_file("config.yaml").unwrap();
+
+    // Test with default config (should not log by default)
+    let headers = axum::http::HeaderMap::new();
+    assert!(config.should_log_response(200, &headers, "").is_none());
+
+    // Test with config that has response logging default true
+    let config_with_default = Config {
+        server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
+        logging: LoggingConfig { default: false, rules: vec![] },
+        drop: DropConfig { default: false, rules: vec![] },
+        response_logging: ResponseLoggingConfig {
+            default: true,
+            rules: vec![],
+        },
+    };
+    assert!(config_with_default.should_log_response(200, &headers, "").is_some());
+}
+
+#[test]
+fn test_matches_response_rule_status_code() {
+    let config = Config::from_file("config.yaml").unwrap();
+
+    let headers = axum::http::HeaderMap::new();
+    let conditions = ResponseMatchConditions {
+        status_codes: vec![200, 201],
+        headers: std::collections::HashMap::new(),
+        body: BodyMatch { patterns: vec![] },
+    };
+
+    // Test matching status code
+    assert!(config.matches_response_rule(200, &headers, "", &conditions));
+
+    // Test non-matching status code
+    assert!(!config.matches_response_rule(404, &headers, "", &conditions));
+}
+
+#[test]
+fn test_matches_response_rule_headers() {
+    let config = Config::from_file("config.yaml").unwrap();
+
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("content-type", "application/json".parse().unwrap());
+
+    let mut conditions_headers = std::collections::HashMap::new();
+    conditions_headers.insert("content-type".to_string(), "application/json.*".to_string());
+
+    let conditions = ResponseMatchConditions {
+        status_codes: vec![],
+        headers: conditions_headers,
+        body: BodyMatch { patterns: vec![] },
+    };
+
+    // Test matching header
+    assert!(config.matches_response_rule(200, &headers, "", &conditions));
+
+    // Test non-matching header
+    let mut wrong_headers = axum::http::HeaderMap::new();
+    wrong_headers.insert("content-type", "text/plain".parse().unwrap());
+    assert!(!config.matches_response_rule(200, &wrong_headers, "", &conditions));
+}
+
+#[test]
+fn test_matches_response_rule_body() {
+    let config = Config::from_file("config.yaml").unwrap();
+
+    let headers = axum::http::HeaderMap::new();
+    let conditions = ResponseMatchConditions {
+        status_codes: vec![],
+        headers: std::collections::HashMap::new(),
+        body: BodyMatch { patterns: vec![r#"success"#.to_string()] },
+    };
+
+    // Test matching body
+    assert!(config.matches_response_rule(200, &headers, "operation successful", &conditions));
+
+    // Test non-matching body
+    assert!(!config.matches_response_rule(200, &headers, "error occurred", &conditions));
 }

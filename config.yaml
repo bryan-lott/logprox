@@ -90,3 +90,43 @@ drop:
       response:
         status_code: 400
         body: "Malicious content detected in request body."
+
+response_logging:
+  # Default behavior if no rules match
+  default: false
+
+  # Rules for what responses to log, processed in order
+  rules:
+    - name: "Log error responses"
+      match_conditions:
+        # Log all 4xx and 5xx responses
+        status_codes:
+          - 400
+          - 401
+          - 403
+          - 404
+          - 500
+          - 502
+          - 503
+      capture:
+        # What to capture in logs when rule matches
+        headers:
+          - "content-type"
+          - "x-request-id"
+        body: true
+        status_code: true
+        timing: true
+
+    - name: "Log successful API responses"
+      match_conditions:
+        status_codes:
+          - 200
+          - 201
+        headers:
+          "content-type": "application/json.*"
+      capture:
+        headers:
+          - "content-type"
+        status_code: true
+        timing: true
+
