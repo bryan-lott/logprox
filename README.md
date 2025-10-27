@@ -16,7 +16,7 @@ LogProx offers a solution. Place it between any internal callers and the externa
   - [x] URL Path
   - [x] URL Method
   - [ ] Request Body
-- [ ] Conditionally drop requests based on the above criteria
+ - [x] Conditionally drop requests based on the above criteria
 - [ ] Conditionally inject additional headers based on the above criteria
 - [x] Reloading of the config file via POST request to LogProx (on-the-fly reloading)
 - [ ] GET endpoint returning the current config

@@ -49,3 +49,29 @@ logging:
           - "content-type"
           - "user-agent"
         body: true
+
+drop:
+  # Default behavior if no rules match
+  default: false
+
+  # Rules for what to drop, processed in order
+  rules:
+    - name: "Drop deprecated API calls"
+      match_conditions:
+        path:
+          patterns:
+            - "/api/v1/deprecated.*"
+      response:
+        status_code: 410
+        body: "This API endpoint has been deprecated and is no longer supported."
+
+    - name: "Drop unauthorized requests"
+      match_conditions:
+        headers:
+          "authorization": ".*"
+        path:
+          patterns:
+            - "/admin.*"
+      response:
+        status_code: 403
+        body: "Access denied."
