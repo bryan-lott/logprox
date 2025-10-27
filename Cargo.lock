@@ -701,7 +701,9 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "tempfile",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]

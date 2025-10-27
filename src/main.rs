@@ -23,8 +23,9 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post, Router},
 };
-use config::{Config, ConfigHolder};
+use config::{Config, ConfigHolder, DropConfig, DropResponse, DropRule, LoggingConfig, MatchConditions, PathMatch, BodyMatch};
 use serde_json;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, Level};
 
@@ -210,4 +211,136 @@ async fn proxy_handler(State(config): State<Arc<ConfigHolder>>, req: Request) ->
     });
 
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use axum::Router;
+    use tower::util::ServiceExt;
+
+    #[tokio::test]
+    async fn test_health_check() {
+        let config = Arc::new(ConfigHolder::new(Config {
+            logging: LoggingConfig { default: false, rules: vec![] },
+            drop: DropConfig { default: false, rules: vec![] },
+        }));
+        let app = Router::new()
+            .route("/health", get(health_check))
+            .with_state(config);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/health")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(&body[..], b"OK");
+    }
+
+    #[tokio::test]
+    async fn test_get_config() {
+        let config = Arc::new(ConfigHolder::new(Config {
+            logging: LoggingConfig { default: false, rules: vec![] },
+            drop: DropConfig { default: false, rules: vec![] },
+        }));
+        let app = Router::new()
+            .route("/config", get(get_config))
+            .with_state(config.clone());
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/config")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers().get("content-type").unwrap(), "application/json");
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let config_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(config_json["logging"]["default"], false);
+        assert_eq!(config_json["drop"]["default"], false);
+    }
+
+    #[tokio::test]
+    async fn test_reload_config() {
+        // Create a temporary config file
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("test_config.yaml");
+        std::fs::write(&config_path, r#"
+logging:
+  default: true
+drop:
+  default: false
+"#).unwrap();
+
+        let config = Arc::new(ConfigHolder::new(Config {
+            logging: LoggingConfig { default: false, rules: vec![] },
+            drop: DropConfig { default: false, rules: vec![] },
+        }));
+
+        // Temporarily change the config file path for testing
+        // Since ConfigHolder uses hardcoded "config.yaml", this is tricky
+        // For this test, we'll just check the endpoint responds correctly
+        let app = Router::new()
+            .route("/config/reload", post(reload_config))
+            .with_state(config);
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/config/reload")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        // Reloads the existing config.yaml successfully
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_proxy_handler_drop_request() {
+        let config = Arc::new(ConfigHolder::new(Config {
+            logging: LoggingConfig { default: false, rules: vec![] },
+            drop: DropConfig {
+                default: false,
+                rules: vec![DropRule {
+                    name: "Test drop".to_string(),
+                    match_conditions: MatchConditions {
+                        path: PathMatch { patterns: vec!["/drop.*".to_string()] },
+                        methods: vec![],
+                        headers: HashMap::new(),
+                        body: BodyMatch { patterns: vec![] },
+                    },
+                    response: DropResponse {
+                        status_code: 403,
+                        body: Some("Dropped".to_string()),
+                    },
+                }],
+            },
+        }));
+
+        let app = Router::new()
+            .fallback(proxy_handler)
+            .with_state(config);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/drop/test")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(&body[..], b"Dropped");
+    }
 }
