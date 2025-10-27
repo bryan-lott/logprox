@@ -355,4 +355,103 @@ drop:
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
         assert_eq!(&body[..], b"Dropped");
     }
+
+    #[tokio::test]
+    async fn test_proxy_latency_baseline() {
+        // Test that proxy handler completes within reasonable time for drop requests
+        // This establishes a baseline for latency measurements
+        let config = Arc::new(ConfigHolder::new(Config {
+            server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
+            logging: LoggingConfig { default: false, rules: vec![] },
+            drop: DropConfig {
+                default: false,
+                rules: vec![DropRule {
+                    name: "Latency test".to_string(),
+                    match_conditions: MatchConditions {
+                        path: PathMatch { patterns: vec!["/latency.*".to_string()] },
+                        methods: vec![],
+                        headers: HashMap::new(),
+                        body: BodyMatch { patterns: vec![] },
+                    },
+                    response: DropResponse {
+                        status_code: 200,
+                        body: Some("OK".to_string()),
+                    },
+                }],
+            },
+        }));
+
+        let app = Router::new()
+            .fallback(proxy_handler)
+            .with_state(config);
+
+        // Test drop request (fast path - no network calls)
+        let start = std::time::Instant::now();
+        let req = Request::builder()
+            .method("GET")
+            .uri("/latency/test")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        let duration = start.elapsed();
+
+        // Should complete in under 100ms (very fast for drop requests)
+        assert!(duration < std::time::Duration::from_millis(100),
+                "Drop request took too long: {:?}", duration);
+
+        // Should get the expected response
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_proxy_no_significant_overhead() {
+        // Test that the proxy handler processes drop requests with minimal latency
+        // Drop requests should be very fast since they don't make network calls
+
+        let config = Arc::new(ConfigHolder::new(Config {
+            server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
+            logging: LoggingConfig { default: false, rules: vec![] },
+            drop: DropConfig {
+                default: false,
+                rules: vec![DropRule {
+                    name: "Fast drop test".to_string(),
+                    match_conditions: MatchConditions {
+                        path: PathMatch { patterns: vec!["/drop.*".to_string()] },
+                        methods: vec![],
+                        headers: HashMap::new(),
+                        body: BodyMatch { patterns: vec![] },
+                    },
+                    response: DropResponse {
+                        status_code: 403,
+                        body: Some("Fast drop".to_string()),
+                    },
+                }],
+            },
+        }));
+
+        // Test multiple drop requests to ensure consistent fast performance
+        for i in 0..5 {
+            let app = Router::new()
+                .fallback(proxy_handler)
+                .with_state(config.clone());
+
+            let proxy_start = std::time::Instant::now();
+            let req = Request::builder()
+                .method("GET")
+                .uri(&format!("/drop/test/{}", i))
+                .body(Body::empty())
+                .unwrap();
+
+            let resp = app.oneshot(req).await.unwrap();
+            let proxy_duration = proxy_start.elapsed();
+
+            // Drop requests should complete in under 10ms (microseconds range)
+            assert!(proxy_duration < std::time::Duration::from_millis(10),
+                    "Drop request took too long on iteration {}: {:?}", i, proxy_duration);
+
+            // Verify it was actually dropped
+            assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        }
+    }
 }
