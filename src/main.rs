@@ -1,33 +1,10 @@
-/*
-TODO's
-- [x] Add a health check endpoint
-- [x] Add configuration by config file or environment variables
-- [x] Add environment variable substitution in config values
-- [x] Add dropping requests based on config
-   - [x] Headers
-   - [x] Body
-   - [x] Request method
-   - [x] Request path
-- [ ] Add injection of additional headers based on config
-- [x] Add reloading the config file on a POST
-- [x] Add a get endpoint for returning the current config
-- [ ] Add a get endpoint for returning the config schema
-- [x] Add a config documentation endpoint
-- [ ] Add environment variable substitution in config values
-*/
-
 pub mod config;
 pub mod handlers;
 
 use axum::{
-    body::Body,
-    extract::{Request, State},
-    http::StatusCode,
-    response::{IntoResponse, Response},
     routing::{get, post, Router},
 };
 use config::{Config, ConfigHolder};
-use serde_json;
 use std::sync::Arc;
 use tracing::{info, Level};
 

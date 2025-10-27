@@ -13,7 +13,6 @@ keywords = ["proxy", "http", "logging", "monitoring", "api-gateway"]
 categories = ["web-programming::http-server", "network-programming"]
 exclude = [
     "config.yaml",
-    "config_docs.md",
     ".github/",
     "benches/",
     "tests/",
