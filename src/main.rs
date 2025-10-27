@@ -12,7 +12,7 @@ TODO's
 - [x] Add reloading the config file on a POST
 - [x] Add a get endpoint for returning the current config
 - [ ] Add a get endpoint for returning the config schema
-- [ ] Add a config documentation endpoint
+- [x] Add a config documentation endpoint
 - [ ] Add environment variable substitution in config values
 */
 
@@ -51,6 +51,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/config", get(get_config))
+        .route("/config/docs", get(get_config_docs))
         .route("/config/reload", post(reload_config))
         .fallback(proxy_handler)
         .with_state(config);
@@ -95,6 +96,184 @@ async fn reload_config(State(config): State<Arc<ConfigHolder>>) -> impl IntoResp
             .body(Body::from(format!("Failed to reload config: {}", e)))
             .unwrap(),
     }
+}
+
+async fn get_config_docs() -> impl IntoResponse {
+    let docs = r#"# LogProx Configuration Documentation
+
+## Overview
+LogProx uses a YAML configuration file to define logging and request dropping rules. The configuration supports environment variable substitution using `${VAR_NAME}` syntax.
+
+## Configuration Structure
+
+### Server Configuration
+```yaml
+server:
+  port: 3000                    # Server port (can be overridden by PORT env var)
+  config_file: config.yaml      # Config file path (can be overridden by CONFIG_FILE env var)
+```
+
+### Logging Configuration
+```yaml
+logging:
+  default: false                # Default logging behavior if no rules match
+  rules:                        # Array of logging rules
+    - name: "Rule Name"         # Descriptive name for the rule
+      match_conditions:         # Conditions that must ALL match
+        path:                   # URL path patterns (regex)
+          patterns:
+            - "/api/.*"
+        methods:                # HTTP methods to match
+          - "POST"
+          - "PUT"
+        headers:                # Required headers and regex patterns
+          "content-type": "application/json.*"
+          "authorization": "Bearer .*"
+        body:                   # Request body patterns (regex)
+          patterns:
+            - '"amount":\s*\d+'
+      capture:                  # What to include in logs
+        headers:                # List of header names to capture
+          - "content-type"
+          - "user-agent"
+        body: true              # Whether to log request body
+        method: true            # Whether to log HTTP method
+        path: true              # Whether to log URL path
+        timing: true            # Whether to log timing information
+```
+
+### Drop Configuration
+```yaml
+drop:
+  default: false                # Default drop behavior if no rules match
+  rules:                        # Array of drop rules
+    - name: "Rule Name"         # Descriptive name for the rule
+      match_conditions:         # Conditions that must ALL match (same as logging)
+        path:
+          patterns:
+            - "/deprecated/.*"
+        methods:
+          - "GET"
+        headers:
+          "user-agent": ".*bot.*"
+        body:
+          patterns:
+            - "<script>.*</script>"
+      response:                 # Response to return when dropping
+        status_code: 403        # HTTP status code
+        body: "Access denied"   # Response body (supports env vars)
+```
+
+## Environment Variables
+
+### Configuration File Location
+- `CONFIG_FILE`: Path to config file (default: config.yaml)
+- `PORT`: Server port (default: 3000)
+
+### Environment Variable Substitution
+Config values can reference environment variables using `${VAR_NAME}` syntax:
+```yaml
+drop:
+  rules:
+    - name: "API Key Required"
+      response:
+        status_code: 401
+        body: "API Key ${API_KEY} required"
+```
+
+## Pattern Matching
+
+### Regex Syntax
+All pattern matching uses Rust's regex engine. Common patterns:
+- `.*` - Match any characters
+- `^/api/` - Match paths starting with /api/
+- `\d+` - Match one or more digits
+- `(option1|option2)` - Match either option1 or option2
+
+### Matching Logic
+- **Path patterns**: At least one pattern must match the request path
+- **Methods**: The request method must be in the methods list (if specified)
+- **Headers**: ALL specified headers must be present and match their patterns
+- **Body patterns**: At least one pattern must match the request body content
+- **Rule evaluation**: Rules are evaluated in order; first match wins
+
+## Examples
+
+### Basic API Logging
+```yaml
+logging:
+  default: false
+  rules:
+    - name: "Log API requests"
+      match_conditions:
+        path:
+          patterns:
+            - "/api/.*"
+        methods:
+          - "POST"
+          - "PUT"
+          - "DELETE"
+      capture:
+        headers:
+          - "content-type"
+          - "authorization"
+        body: true
+        method: true
+        path: true
+        timing: true
+```
+
+### Security: Block Malicious Requests
+```yaml
+drop:
+  default: false
+  rules:
+    - name: "Block XSS attempts"
+      match_conditions:
+        body:
+          patterns:
+            - "<script>.*</script>"
+            - "javascript:"
+            - "onload="
+      response:
+        status_code: 400
+        body: "Malicious content detected"
+```
+
+### Rate Limiting Simulation
+```yaml
+drop:
+  default: false
+  rules:
+    - name: "Block bot traffic"
+      match_conditions:
+        headers:
+          "user-agent": ".*(bot|crawler|spider).*"
+      response:
+        status_code: 429
+        body: "Rate limit exceeded"
+```
+
+## API Endpoints
+
+- `GET /health` - Health check
+- `GET /config` - Current configuration (JSON)
+- `GET /config/docs` - This documentation
+- `POST /config/reload` - Reload configuration from file
+
+## Notes
+
+- Configuration is loaded on startup and can be reloaded via POST /config/reload
+- Invalid regex patterns will cause rule matching to fail for that condition
+- Request bodies are consumed for all requests to enable body matching
+- Environment variables are substituted at config load time
+- All pattern matching is case-sensitive unless specified otherwise"#;
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "text/plain; charset=utf-8")
+        .body(Body::from(docs))
+        .unwrap()
 }
 
 #[axum::debug_handler]
@@ -409,6 +588,38 @@ drop:
 
         // Should get the expected response
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_get_config_docs() {
+        let config = Arc::new(ConfigHolder::new(Config {
+            server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
+            logging: LoggingConfig { default: false, rules: vec![] },
+            drop: DropConfig { default: false, rules: vec![] },
+        }));
+
+        let app = Router::new()
+            .route("/config/docs", get(get_config_docs))
+            .with_state(config);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/config/docs")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers().get("content-type").unwrap(), "text/plain; charset=utf-8");
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+
+        // Check that the documentation contains key sections
+        assert!(body_str.contains("# LogProx Configuration Documentation"));
+        assert!(body_str.contains("## Configuration Structure"));
+        assert!(body_str.contains("## API Endpoints"));
+        assert!(body_str.contains("GET /config/docs"));
     }
 
     #[tokio::test]
