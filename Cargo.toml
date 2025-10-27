@@ -3,6 +3,10 @@ name = "logprox"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "logprox"
+path = "src/lib.rs"
+
 [dependencies]
 # Async runtime and HTTP handling
 tokio = { version = "1.36", features = ["full"] }
