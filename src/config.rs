@@ -138,9 +138,9 @@ impl Config {
         }).to_string()
     }
 
-    pub fn should_log_request(&self, req: &axum::extract::Request) -> Option<&CaptureConfig> {
+    pub fn should_log_request(&self, req: &axum::extract::Request, body_content: &str) -> Option<&CaptureConfig> {
         for rule in &self.logging.rules {
-            if self.matches_rule(req, &rule.match_conditions) {
+            if self.matches_rule(req, &rule.match_conditions, body_content) {
                 return Some(&rule.capture);
             }
         }
@@ -158,9 +158,9 @@ impl Config {
         }
     }
 
-    pub fn should_drop_request(&self, req: &axum::extract::Request) -> Option<DropResponse> {
+    pub fn should_drop_request(&self, req: &axum::extract::Request, body_content: &str) -> Option<DropResponse> {
         for rule in &self.drop.rules {
-            if self.matches_rule(req, &rule.match_conditions) {
+            if self.matches_rule(req, &rule.match_conditions, body_content) {
                 return Some(rule.response.clone());
             }
         }
@@ -174,7 +174,7 @@ impl Config {
         }
     }
 
-    fn matches_rule(&self, req: &axum::extract::Request, conditions: &MatchConditions) -> bool {
+    fn matches_rule(&self, req: &axum::extract::Request, conditions: &MatchConditions, body_content: &str) -> bool {
         // Check method
         if !conditions.methods.is_empty()
             && !conditions
@@ -209,6 +209,18 @@ impl Config {
                     }
                 }
             } else {
+                return false;
+            }
+        }
+
+        // Check body
+        if !conditions.body.patterns.is_empty() {
+            let matches = conditions.body.patterns.iter().any(|pattern| {
+                regex::Regex::new(pattern)
+                    .map(|re| re.is_match(body_content))
+                    .unwrap_or(false)
+            });
+            if !matches {
                 return false;
             }
         }
@@ -248,7 +260,7 @@ mod tests {
 
         // Verify drop rules
         assert_eq!(config.drop.default, false);
-        assert_eq!(config.drop.rules.len(), 2);
+        assert_eq!(config.drop.rules.len(), 3);
 
         // Check first drop rule - deprecated API
         let deprecated_rule = &config.drop.rules[0];
@@ -313,15 +325,15 @@ mod tests {
             "/anything/test",
             vec![("content-type", "application/json")],
         );
-        assert!(config.should_log_request(&api_req).is_some());
+        assert!(config.should_log_request(&api_req, "").is_some());
 
         // Test matching health check
         let health_req = create_test_request(Method::GET, "/health", vec![]);
-        assert!(config.should_log_request(&health_req).is_some());
+        assert!(config.should_log_request(&health_req, "").is_some());
 
         // Test matching local test rule (matches .* path)
         let other_req = create_test_request(Method::GET, "/no-match", vec![]);
-        assert!(config.should_log_request(&other_req).is_some());
+        assert!(config.should_log_request(&other_req, "").is_some());
     }
 
     #[test]
@@ -330,7 +342,7 @@ mod tests {
 
         // Test matching deprecated API
         let deprecated_req = create_test_request(Method::GET, "/api/v1/deprecated/old", vec![]);
-        let drop_resp = config.should_drop_request(&deprecated_req).unwrap();
+        let drop_resp = config.should_drop_request(&deprecated_req, "").unwrap();
         assert_eq!(drop_resp.status_code, 410);
         assert!(drop_resp.body.is_some());
 
@@ -340,12 +352,12 @@ mod tests {
             "/admin/dashboard",
             vec![("authorization", "Bearer token")],
         );
-        let drop_resp = config.should_drop_request(&admin_req).unwrap();
+        let drop_resp = config.should_drop_request(&admin_req, "").unwrap();
         assert_eq!(drop_resp.status_code, 403);
 
         // Test non-matching request
         let normal_req = create_test_request(Method::GET, "/api/v2/normal", vec![]);
-        assert!(config.should_drop_request(&normal_req).is_none());
+        assert!(config.should_drop_request(&normal_req, "").is_none());
     }
 
     #[test]
@@ -360,11 +372,11 @@ mod tests {
             headers: HashMap::new(),
             body: BodyMatch { patterns: vec![] },
         };
-        assert!(config.matches_rule(&post_req, &conditions));
+        assert!(config.matches_rule(&post_req, &conditions, ""));
 
         // Test method no match
         let get_req = create_test_request(Method::GET, "/test", vec![]);
-        assert!(!config.matches_rule(&get_req, &conditions));
+        assert!(!config.matches_rule(&get_req, &conditions, ""));
     }
 
     #[test]
@@ -379,11 +391,15 @@ mod tests {
             headers: HashMap::new(),
             body: BodyMatch { patterns: vec![] },
         };
-        assert!(config.matches_rule(&req, &conditions));
+        assert!(config.matches_rule(&req, &conditions, ""));
 
-        // Test path no match
-        let req2 = create_test_request(Method::GET, "/nothealth", vec![]);
-        assert!(!config.matches_rule(&req2, &conditions));
+        // Test one condition fails
+        let req2 = create_test_request(
+            Method::GET,
+            "/anything/test",
+            vec![("content-type", "application/json")],
+        );
+        assert!(!config.matches_rule(&req2, &conditions, ""));
     }
 
     #[test]
@@ -400,15 +416,15 @@ mod tests {
             headers,
             body: BodyMatch { patterns: vec![] },
         };
-        assert!(config.matches_rule(&req, &conditions));
+        assert!(config.matches_rule(&req, &conditions, ""));
 
         // Test header no match
         let req2 = create_test_request(Method::GET, "/test", vec![("content-type", "text/plain")]);
-        assert!(!config.matches_rule(&req2, &conditions));
+        assert!(!config.matches_rule(&req2, &conditions, ""));
 
         // Test missing header
         let req3 = create_test_request(Method::GET, "/test", vec![]);
-        assert!(!config.matches_rule(&req3, &conditions));
+        assert!(!config.matches_rule(&req3, &conditions, ""));
     }
 
     #[test]
@@ -429,7 +445,7 @@ mod tests {
             headers,
             body: BodyMatch { patterns: vec![] },
         };
-        assert!(config.matches_rule(&req, &conditions));
+        assert!(config.matches_rule(&req, &conditions, ""));
 
         // Test one condition fails
         let req2 = create_test_request(
@@ -437,7 +453,38 @@ mod tests {
             "/anything/test",
             vec![("content-type", "application/json")],
         );
-        assert!(!config.matches_rule(&req2, &conditions));
+        assert!(!config.matches_rule(&req2, &conditions, ""));
+    }
+
+    #[test]
+    fn test_matches_rule_body() {
+        let config = Config::from_file("config.yaml").unwrap();
+
+        // Test body regex match
+        let req = create_test_request(Method::POST, "/test", vec![]);
+        let conditions = MatchConditions {
+            path: PathMatch { patterns: vec![] },
+            methods: vec![],
+            headers: HashMap::new(),
+            body: BodyMatch { patterns: vec![r#""amount":\s*\d+"#.to_string()] },
+        };
+        let body_with_amount = r#"{"amount": 123, "user": "test"}"#;
+        assert!(config.matches_rule(&req, &conditions, body_with_amount));
+
+        // Test body no match
+        let body_without_amount = r#"{"user": "test", "status": "ok"}"#;
+        assert!(!config.matches_rule(&req, &conditions, body_without_amount));
+
+        // Test multiple patterns (any match)
+        let conditions_multi = MatchConditions {
+            path: PathMatch { patterns: vec![] },
+            methods: vec![],
+            headers: HashMap::new(),
+            body: BodyMatch { patterns: vec![r#"admin"#.to_string(), r#"secret"#.to_string()] },
+        };
+        assert!(config.matches_rule(&req, &conditions_multi, "user admin access"));
+        assert!(config.matches_rule(&req, &conditions_multi, "contains secret data"));
+        assert!(!config.matches_rule(&req, &conditions_multi, "normal user data"));
     }
 
     #[test]
@@ -453,7 +500,7 @@ mod tests {
         };
 
         let req = create_test_request(Method::GET, "/any", vec![]);
-        let drop_resp = config.should_drop_request(&req).unwrap();
+        let drop_resp = config.should_drop_request(&req, "").unwrap();
         assert_eq!(drop_resp.status_code, 403);
         assert!(drop_resp.body.is_some());
     }
