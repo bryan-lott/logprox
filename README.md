@@ -28,6 +28,12 @@ request bodies.
 - [x] GET endpoint returning the configuration documentation
 - [ ] Conditionally log responses
 
+## Donation
+
+If this is helpful in your day to day, please consider sending some of your hard earned dollars my way, thanks!!
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/W7W31N7O4H)
+
 ## Configuration
 
 LogProx uses a YAML configuration file to define logging and request dropping rules.
