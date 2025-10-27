@@ -22,15 +22,64 @@ request bodies.
   - [x] URL Method
   - [x] Request Body
 - [x] Conditionally drop requests based on the above criteria
-- [ ] Conditionally inject additional headers based on the above criteria
 - [x] Reloading of the config file via POST request to LogProx (on-the-fly reloading)
 - [x] GET endpoint returning the current config
 - [x] GET endpoint returning the configuration documentation
 - [x] Conditionally log responses
 
+## Possible Future Features
+
+The following features are planned for future development, feel free to open a
+github issue for features you'd like!
+
+### Security & Compliance
+
+- [ ] IP whitelisting/blacklisting and geolocation filtering
+- [ ] Request sanitization and sensitive data masking
+- [ ] Audit logging with tamper-proof trails
+- [ ] API key authentication and per-key rate limiting
+
+### Data Processing
+
+- [ ] Request/response transformation using templates or scripts
+- [ ] Automatic content compression for large responses
+- [ ] Request deduplication within time windows
+- [ ] Request batching for improved upstream efficiency
+- [ ] Conditionally inject additional headers
+- [ ] Conditionally rewrite headers
+
+### Monitoring & Observability
+
+- [ ] Prometheus-style metrics collection and endpoints
+- [ ] Distributed tracing integration (OpenTelemetry, Jaeger)
+- [ ] Advanced health checks for upstream service monitoring
+- [ ] Performance profiling and bottleneck analysis
+
+### Operational Features
+
+- [ ] Configuration validation against schema
+- [ ] Hot configuration updates without service restart
+- [ ] Request replay functionality for testing/debugging
+- [ ] Webhook notifications for specific conditions
+
+### Developer Experience
+
+- [ ] Request debugging with detailed timing breakdowns
+- [ ] Configuration testing against sample requests
+- [ ] Plugin system for custom middleware
+- [ ] Auto-generated API documentation from traffic patterns
+
+### Infrastructure Integration
+
+- [ ] Service discovery integration (Consul, etcd, Kubernetes)
+- [ ] External configuration management (Vault, etcd)
+- [ ] Enhanced log aggregation compatibility
+- [ ] Container orchestration optimizations
+
 ## Donation
 
-If this is helpful in your day to day, please consider sending some of your hard earned dollars my way, thanks!!
+If this is helpful in your day to day, please consider sending some of your hard
+earned dollars my way, thanks!!
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/W7W31N7O4H)
 
@@ -106,7 +155,7 @@ drop:
       response: # Response to return when dropping
         status_code: 403 # HTTP status code
          body: "Access denied" # Response body (supports env vars)
- ```
+```
 
 #### Response Logging Configuration
 
