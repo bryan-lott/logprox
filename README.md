@@ -26,7 +26,7 @@ request bodies.
 - [x] Reloading of the config file via POST request to LogProx (on-the-fly reloading)
 - [x] GET endpoint returning the current config
 - [x] GET endpoint returning the configuration documentation
-- [ ] Conditionally log responses
+- [x] Conditionally log responses
 
 ## Donation
 
@@ -105,7 +105,35 @@ drop:
             - "<script>.*</script>"
       response: # Response to return when dropping
         status_code: 403 # HTTP status code
-        body: "Access denied" # Response body (supports env vars)
+         body: "Access denied" # Response body (supports env vars)
+ ```
+
+#### Response Logging Configuration
+
+```yaml
+response_logging:
+  default: false # Default logging behavior if no rules match
+  rules: # Array of response logging rules
+    - name: "Log error responses" # Descriptive name for the rule
+      match_conditions: # Conditions that must ALL match
+        status_codes: # HTTP status codes to match
+          - 400
+          - 401
+          - 403
+          - 404
+          - 500
+        headers: # Required headers and regex patterns
+          "content-type": "application/json.*"
+        body: # Response body patterns (regex)
+          patterns:
+            - "error.*"
+      capture: # What to include in logs
+        headers: # List of header names to capture
+          - "content-type"
+          - "x-request-id"
+        body: true # Whether to log response body
+        status_code: true # Whether to log HTTP status code
+        timing: true # Whether to log timing information
 ```
 
 ### Pattern Matching
@@ -187,6 +215,31 @@ drop:
         body: "Rate limit exceeded"
 ```
 
+#### Response Monitoring
+
+```yaml
+response_logging:
+  default: false
+  rules:
+    - name: "Log API errors"
+      match_conditions:
+        status_codes:
+          - 400
+          - 401
+          - 403
+          - 404
+          - 500
+          - 502
+          - 503
+      capture:
+        headers:
+          - "content-type"
+          - "x-correlation-id"
+        body: true
+        status_code: true
+        timing: true
+```
+
 ## API Endpoints
 
 - `GET /health` - Health check
@@ -199,6 +252,7 @@ drop:
 - Configuration is loaded on startup and can be reloaded via POST /config/reload
 - Invalid regex patterns will cause rule matching to fail for that condition
 - Request bodies are consumed for all requests to enable body matching
+- Response logging captures response details after proxy processing
 - Environment variables are substituted at config load time
 - All pattern matching is case-sensitive unless specified otherwise
 
