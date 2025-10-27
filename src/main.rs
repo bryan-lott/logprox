@@ -2,6 +2,7 @@
 TODO's
 - [x] Add a health check endpoint
 - [x] Add configuration by config file or environment variables
+- [x] Add environment variable substitution in config values
 - [x] Add dropping requests based on config
    - [x] Headers
    - [ ] Body
@@ -12,6 +13,7 @@ TODO's
 - [x] Add a get endpoint for returning the current config
 - [ ] Add a get endpoint for returning the config schema
 - [ ] Add a config documentation endpoint
+- [ ] Add environment variable substitution in config values
 */
 
 mod config;
@@ -23,7 +25,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post, Router},
 };
-use config::{Config, ConfigHolder, DropConfig, DropResponse, DropRule, LoggingConfig, MatchConditions, PathMatch, BodyMatch};
+use config::{Config, ConfigHolder, DropConfig, DropResponse, DropRule, LoggingConfig, MatchConditions, PathMatch, BodyMatch, ServerConfig};
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -38,8 +40,9 @@ async fn main() {
         .init();
 
     // Load configuration
-    let config = Config::from_file("config.yaml").unwrap_or_else(|e| {
-        eprintln!("Failed to load config: {}", e);
+    let config_file = std::env::var("CONFIG_FILE").unwrap_or_else(|_| "config.yaml".to_string());
+    let config = Config::from_file(&config_file).unwrap_or_else(|e| {
+        eprintln!("Failed to load config from {}: {}", config_file, e);
         std::process::exit(1);
     });
     let config = Arc::new(ConfigHolder::new(config));
@@ -52,10 +55,15 @@ async fn main() {
         .fallback(proxy_handler)
         .with_state(config);
 
-    info!("Starting proxy server on 0.0.0.0:3000");
+    let port = std::env::var("PORT")
+        .unwrap_or_else(|_| "3000".to_string())
+        .parse::<u16>()
+        .unwrap_or(3000);
+    let addr = format!("0.0.0.0:{}", port);
+    info!("Starting proxy server on {}", addr);
 
     // Run it
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -224,6 +232,7 @@ mod tests {
     #[tokio::test]
     async fn test_health_check() {
         let config = Arc::new(ConfigHolder::new(Config {
+            server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
             logging: LoggingConfig { default: false, rules: vec![] },
             drop: DropConfig { default: false, rules: vec![] },
         }));
@@ -247,6 +256,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_config() {
         let config = Arc::new(ConfigHolder::new(Config {
+            server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
             logging: LoggingConfig { default: false, rules: vec![] },
             drop: DropConfig { default: false, rules: vec![] },
         }));
@@ -283,6 +293,7 @@ drop:
 "#).unwrap();
 
         let config = Arc::new(ConfigHolder::new(Config {
+            server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
             logging: LoggingConfig { default: false, rules: vec![] },
             drop: DropConfig { default: false, rules: vec![] },
         }));
@@ -308,6 +319,7 @@ drop:
     #[tokio::test]
     async fn test_proxy_handler_drop_request() {
         let config = Arc::new(ConfigHolder::new(Config {
+            server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
             logging: LoggingConfig { default: false, rules: vec![] },
             drop: DropConfig {
                 default: false,
