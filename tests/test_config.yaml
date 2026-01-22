@@ -1,0 +1,38 @@
+server:
+  port: 3000
+
+logging:
+  default: false
+  rules:
+    - name: "Log httpbin requests"
+      match_conditions:
+        path:
+          patterns: ["httpbin.org.*"]
+      capture:
+        method: true
+        path: true
+        headers: ["user-agent"]
+        body: true
+      timeout: 30s
+
+    - name: "Log with custom timeout"
+      match_conditions:
+        path:
+          patterns: ["httpbin.org/delay.*"]
+      capture:
+        method: true
+        timing: true
+      timeout: 5s
+
+drop:
+  default: false
+  rules: []
+
+response_logging:
+  default: false
+  rules:
+    - name: "Log errors"
+      match_conditions:
+        status_codes: [400, 404, 500, 502, 503]
+      capture:
+        status_code: true

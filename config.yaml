@@ -1,7 +1,9 @@
 server:
   # Server configuration
   port: 3000
-  config_file: config.yaml
+
+# To proxy requests: http://localhost:3000/https://httpbin.org/anything
+# Everything after the first slash becomes the upstream URL
 
 logging:
   # Default behavior if no rules match
@@ -9,13 +11,13 @@ logging:
 
   # Rules for what to log, processed in order
   rules:
-    - name: "Log API requests"
+    - name: "Log API requests with timeout"
       match_conditions:
         # All conditions in a rule must match to log
         path:
           # Regex patterns for path matching
           patterns:
-            - "/anything.*"
+            - "httpbin.org.*"
         methods:
           - "POST"
           - "PUT"
@@ -31,6 +33,7 @@ logging:
         method: true
         path: true
         timing: true
+      timeout: 30s  # 30 second timeout for this rule
 
     - name: "Log health checks"
       match_conditions:
@@ -40,6 +43,7 @@ logging:
       capture:
         timing: true
         method: true
+      # No timeout = unlimited
 
     - name: "Local Test"
       match_conditions:
@@ -54,6 +58,7 @@ logging:
           - "content-type"
           - "user-agent"
         body: true
+      # No timeout = unlimited (default)
 
 drop:
   # Default behavior if no rules match
@@ -113,20 +118,8 @@ response_logging:
         headers:
           - "content-type"
           - "x-request-id"
+        status_code: true
         body: true
-        status_code: true
+        method: true
+        path: true
         timing: true
-
-    - name: "Log successful API responses"
-      match_conditions:
-        status_codes:
-          - 200
-          - 201
-        headers:
-          "content-type": "application/json.*"
-      capture:
-        headers:
-          - "content-type"
-        status_code: true
-        timing: true
-

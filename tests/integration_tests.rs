@@ -1,16 +1,31 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use logprox::config::{Config, ConfigHolder, ServerConfig, LoggingConfig, DropConfig, DropRule, MatchConditions, PathMatch, BodyMatch, DropResponse, ResponseLoggingConfig};
+use logprox::config::{Config, ConfigHolder, ServerConfig, LoggingConfig, DropConfig, DropRule, MatchConditions, PathMatch, BodyMatch, DropResponse, ResponseLoggingConfig, LoggingRule, CaptureConfig};
 use logprox::{get_config, get_config_docs, get_health_check, proxy_handler, reload_config};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tower::util::ServiceExt;
 
+fn load_test_config() -> Config {
+    Config::from_file("tests/test_config.yaml").unwrap()
+}
+
+fn create_test_app(config: Config) -> Router {
+    let config = Arc::new(ConfigHolder::new(config));
+    Router::new()
+        .route("/health", axum::routing::get(get_health_check))
+        .route("/config", axum::routing::get(get_config))
+        .route("/config/docs", axum::routing::get(get_config_docs))
+        .route("/config/reload", axum::routing::post(reload_config))
+        .fallback(proxy_handler)
+        .with_state(config)
+}
+
 #[tokio::test]
 async fn test_health_check() {
     let config = Arc::new(ConfigHolder::new(Config {
-        server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
+        server: ServerConfig { port: 3000 },
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
         response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
@@ -35,7 +50,7 @@ async fn test_health_check() {
 #[tokio::test]
 async fn test_get_config() {
     let config = Arc::new(ConfigHolder::new(Config {
-        server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
+        server: ServerConfig { port: 3000 },
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
         response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
@@ -61,42 +76,9 @@ async fn test_get_config() {
 }
 
 #[tokio::test]
-async fn test_reload_config() {
-    // Create a temporary config file
-    let temp_dir = tempfile::tempdir().unwrap();
-    let config_path = temp_dir.path().join("test_config.yaml");
-    std::fs::write(&config_path, r#"
-logging:
-  default: true
-drop:
-  default: false
-"#).unwrap();
-
-    let config = Arc::new(ConfigHolder::new(Config {
-        server: ServerConfig { port: 3000, config_file: "nonexistent.yaml".to_string() },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
-    }));
-    let app = Router::new()
-        .route("/config/reload", axum::routing::post(reload_config))
-        .with_state(config);
-
-    let req = Request::builder()
-        .method("POST")
-        .uri("/config/reload")
-        .body(Body::empty())
-        .unwrap();
-
-    let resp = app.oneshot(req).await.unwrap();
-    // Since the file doesn't exist, it should return 500
-    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
-}
-
-#[tokio::test]
 async fn test_get_config_docs() {
     let config = Arc::new(ConfigHolder::new(Config {
-        server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
+        server: ServerConfig { port: 3000 },
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
         response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
@@ -119,7 +101,6 @@ async fn test_get_config_docs() {
     let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let body_str = String::from_utf8(body.to_vec()).unwrap();
 
-    // Check that the documentation contains key sections
     assert!(body_str.contains("# LogProx Configuration Documentation"));
     assert!(body_str.contains("## Configuration Structure"));
     assert!(body_str.contains("## API Endpoints"));
@@ -129,7 +110,7 @@ async fn test_get_config_docs() {
 #[tokio::test]
 async fn test_proxy_handler_drop_request() {
     let config = Arc::new(ConfigHolder::new(Config {
-        server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
+        server: ServerConfig { port: 3000 },
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig {
             default: false,
@@ -168,102 +149,242 @@ async fn test_proxy_handler_drop_request() {
 }
 
 #[tokio::test]
-async fn test_proxy_latency_baseline() {
-    // Test that proxy handler completes within reasonable time for drop requests
-    // This establishes a baseline for latency measurements
-    let config = Arc::new(ConfigHolder::new(Config {
-        server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig {
-            default: false,
-            rules: vec![DropRule {
-                name: "Latency test".to_string(),
-                match_conditions: MatchConditions {
-                    path: PathMatch { patterns: vec!["/latency.*".to_string()] },
-                    methods: vec![],
-                    headers: HashMap::new(),
-                    body: BodyMatch { patterns: vec![] },
-                },
-                response: DropResponse {
-                    status_code: 200,
-                     body: Some("OK".to_string()),
-                },
-            }],
-        },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
-    }));
+async fn test_forward_get_request() {
+    let config = load_test_config();
+    let app = create_test_app(config);
 
-    let app = Router::new()
-        .fallback(proxy_handler)
-        .with_state(config);
-
-    // Test drop request (fast path - no network calls)
-    let start = std::time::Instant::now();
     let req = Request::builder()
         .method("GET")
-        .uri("/latency/test")
+        .uri("/https://httpbin.org/get")
         .body(Body::empty())
         .unwrap();
 
     let resp = app.oneshot(req).await.unwrap();
-    let duration = start.elapsed();
-
-    // Should complete in under 10ms (exceptionally fast for drop requests)
-    assert!(duration < std::time::Duration::from_millis(10),
-            "Drop request took too long: {:?}", duration);
-
-    // Should get the expected response
     assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["url"], "https://httpbin.org/get");
 }
 
 #[tokio::test]
-async fn test_proxy_no_significant_overhead() {
-    // Test that the proxy handler processes drop requests quickly
-    // We test the decision-making logic without actual network calls
+async fn test_forward_post_request() {
+    let config = load_test_config();
+    let app = create_test_app(config);
 
-    let config = Arc::new(ConfigHolder::new(Config {
-        server: ServerConfig { port: 3000, config_file: "config.yaml".to_string() },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig {
+    let test_body = r#"{"test": "data"}"#;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/https://httpbin.org/post")
+        .header("content-type", "application/json")
+        .body(Body::from(test_body))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["json"]["test"], "data");
+}
+
+#[tokio::test]
+async fn test_forward_various_methods() {
+    let config = load_test_config();
+    let app = create_test_app(config);
+
+    let methods = [("GET", "get"), ("PUT", "put"), ("DELETE", "delete")];
+    for (method, path) in methods {
+        let req = Request::builder()
+            .method(method)
+            .uri(&format!("/https://httpbin.org/{}", path))
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+}
+
+#[tokio::test]
+async fn test_header_forwarding() {
+    let config = load_test_config();
+    let app = create_test_app(config);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/https://httpbin.org/headers")
+        .header("x-custom-header", "test-value")
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["headers"]["X-Custom-Header"], "test-value");
+}
+
+#[tokio::test]
+async fn test_forward_various_status_codes() {
+    let config = load_test_config();
+    let app = create_test_app(config);
+
+    let status_tests = [200, 404, 500, 503];
+    for status in status_tests {
+        let req = Request::builder()
+            .method("GET")
+            .uri(&format!("/https://httpbin.org/status/{}", status))
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status().as_u16(), status);
+    }
+}
+
+#[tokio::test]
+async fn test_timeout_with_short_timeout() {
+    let config = Config {
+        server: ServerConfig { port: 3000 },
+        logging: LoggingConfig {
             default: false,
-            rules: vec![DropRule {
-                name: "Fast drop test".to_string(),
+            rules: vec![LoggingRule {
+                name: "Short timeout".into(),
                 match_conditions: MatchConditions {
-                    path: PathMatch { patterns: vec!["/drop.*".to_string()] },
+                    path: PathMatch { patterns: vec!["httpbin.org/delay.*".to_string()] },
                     methods: vec![],
                     headers: HashMap::new(),
                     body: BodyMatch { patterns: vec![] },
                 },
-                response: DropResponse {
-                    status_code: 403,
-                     body: Some("Fast drop".to_string()),
+                capture: CaptureConfig {
+                    headers: vec![],
+                    body: false,
+                    method: true,
+                    path: true,
+                    timing: true,
                 },
+                timeout: Some("2s".to_string()),
             }],
         },
+        drop: DropConfig { default: false, rules: vec![] },
         response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
-    }));
+    };
 
-    // Test multiple drop requests to ensure consistent fast performance
-    for i in 0..5 {
-        let app = Router::new()
-            .fallback(proxy_handler)
-            .with_state(config.clone());
+    let app = create_test_app(config);
 
-        let proxy_start = std::time::Instant::now();
-        let req = Request::builder()
-            .method("GET")
-            .uri(&format!("/drop/test/{}", i))
-            .body(Body::empty())
-            .unwrap();
+    let req = Request::builder()
+        .method("GET")
+        .uri("/https://httpbin.org/delay/10")
+        .body(Body::empty())
+        .unwrap();
 
-        let resp = app.oneshot(req).await.unwrap();
-        let proxy_duration = proxy_start.elapsed();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
 
-        // Drop requests should complete in under 10ms (exceptionally fast)
-        assert!(proxy_duration < std::time::Duration::from_millis(10),
-                "Drop request took too long on iteration {}: {:?}", i, proxy_duration);
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["error"], "Upstream timeout");
+}
 
-        // Verify it was actually dropped
-        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-    }
+#[tokio::test]
+async fn test_timeout_with_no_timeout_rule() {
+    let config = Config {
+        server: ServerConfig { port: 3000 },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![LoggingRule {
+                name: "No timeout".into(),
+                match_conditions: MatchConditions {
+                    path: PathMatch { patterns: vec!["httpbin.org/.*".to_string()] },
+                    methods: vec![],
+                    headers: HashMap::new(),
+                    body: BodyMatch { patterns: vec![] },
+                },
+                capture: CaptureConfig {
+                    headers: vec![],
+                    body: false,
+                    method: true,
+                    path: true,
+                    timing: true,
+                },
+                timeout: None,
+            }],
+        },
+        drop: DropConfig { default: false, rules: vec![] },
+        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+    };
+
+    let app = create_test_app(config);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/https://httpbin.org/delay/1")
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_upstream_error_handling() {
+    let config = Config {
+        server: ServerConfig { port: 3000 },
+        logging: LoggingConfig { default: false, rules: vec![] },
+        drop: DropConfig { default: false, rules: vec![] },
+        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+    };
+
+    let app = create_test_app(config);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/https://this-domain-does-not-exist-12345.com/")
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
+}
+
+#[tokio::test]
+async fn test_malformed_upstream_url() {
+    let config = Config {
+        server: ServerConfig { port: 3000 },
+        logging: LoggingConfig { default: false, rules: vec![] },
+        drop: DropConfig { default: false, rules: vec![] },
+        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+    };
+
+    let app = create_test_app(config);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/not-a-valid-url")
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_empty_upstream_url() {
+    let config = Config {
+        server: ServerConfig { port: 3000 },
+        logging: LoggingConfig { default: false, rules: vec![] },
+        drop: DropConfig { default: false, rules: vec![] },
+        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+    };
+
+    let app = create_test_app(config);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/")
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }

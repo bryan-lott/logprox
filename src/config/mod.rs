@@ -1,5 +1,5 @@
-use std::sync::RwLock;
 use serde::{Deserialize, Serialize};
+use std::sync::RwLock;
 
 pub mod request;
 pub mod response;
@@ -11,12 +11,11 @@ pub use response::*;
 pub struct ServerConfig {
     #[serde(default = "default_port")]
     pub port: u16,
-    #[serde(default = "default_config_file")]
-    pub config_file: String,
 }
 
-fn default_port() -> u16 { 3000 }
-fn default_config_file() -> String { "config.yaml".to_string() }
+fn default_port() -> u16 {
+    3000
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -41,10 +40,9 @@ impl ConfigHolder {
     }
 
     pub fn reload(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let current_config = self.config.read().unwrap();
-        let config_file = &current_config.server.config_file;
-        let new_config = Config::from_file(config_file)?;
-        drop(current_config); // Release the read lock
+        let config_file =
+            std::env::var("CONFIG_FILE").unwrap_or_else(|_| "config.yaml".to_string());
+        let new_config = Config::from_file(&config_file)?;
         let mut config = self.config.write().unwrap();
         *config = new_config;
         Ok(())
@@ -76,10 +74,15 @@ impl Config {
         re.replace_all(s, |caps: &regex::Captures| {
             let var_name = &caps[1];
             std::env::var(var_name).unwrap_or_else(|_| format!("${{{}}}", var_name))
-        }).to_string()
+        })
+        .to_string()
     }
 
-    pub fn should_log_request(&self, req: &axum::extract::Request, body_content: &str) -> Option<&CaptureConfig> {
+    pub fn should_log_request(
+        &self,
+        req: &axum::extract::Request,
+        body_content: &str,
+    ) -> Option<&CaptureConfig> {
         for rule in &self.logging.rules {
             if self.matches_rule(req, &rule.match_conditions, body_content) {
                 return Some(&rule.capture);
@@ -99,7 +102,11 @@ impl Config {
         }
     }
 
-    pub fn should_drop_request(&self, req: &axum::extract::Request, body_content: &str) -> Option<DropResponse> {
+    pub fn should_drop_request(
+        &self,
+        req: &axum::extract::Request,
+        body_content: &str,
+    ) -> Option<DropResponse> {
         for rule in &self.drop.rules {
             if self.matches_rule(req, &rule.match_conditions, body_content) {
                 return Some(rule.response.clone());
@@ -115,7 +122,12 @@ impl Config {
         }
     }
 
-    pub fn matches_rule(&self, req: &axum::extract::Request, conditions: &MatchConditions, body_content: &str) -> bool {
+    pub fn matches_rule(
+        &self,
+        req: &axum::extract::Request,
+        conditions: &MatchConditions,
+        body_content: &str,
+    ) -> bool {
         // Check method
         if !conditions.methods.is_empty()
             && !conditions
@@ -169,9 +181,19 @@ impl Config {
         true
     }
 
-    pub fn should_log_response(&self, status_code: u16, headers: &axum::http::HeaderMap, body_content: &str) -> Option<&ResponseCaptureConfig> {
+    pub fn should_log_response(
+        &self,
+        status_code: u16,
+        headers: &axum::http::HeaderMap,
+        body_content: &str,
+    ) -> Option<&ResponseCaptureConfig> {
         for rule in &self.response_logging.rules {
-            if self.matches_response_rule(status_code, headers, body_content, &rule.match_conditions) {
+            if self.matches_response_rule(
+                status_code,
+                headers,
+                body_content,
+                &rule.match_conditions,
+            ) {
                 return Some(&rule.capture);
             }
         }
@@ -188,7 +210,13 @@ impl Config {
         }
     }
 
-    pub fn matches_response_rule(&self, status_code: u16, headers: &axum::http::HeaderMap, body_content: &str, conditions: &ResponseMatchConditions) -> bool {
+    pub fn matches_response_rule(
+        &self,
+        status_code: u16,
+        headers: &axum::http::HeaderMap,
+        body_content: &str,
+        conditions: &ResponseMatchConditions,
+    ) -> bool {
         // Check status code
         if !conditions.status_codes.is_empty() && !conditions.status_codes.contains(&status_code) {
             return false;
