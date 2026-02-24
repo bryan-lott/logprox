@@ -1,6 +1,6 @@
 [package]
 name = "logprox"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Bryan Lott <bryan@bryanlott.dev>"]
 description = "A blazing-fast HTTP proxy with conditional logging and request control"
@@ -11,12 +11,7 @@ documentation = "https://docs.rs/logprox"
 readme = "README.md"
 keywords = ["proxy", "http", "logging", "monitoring", "api-gateway"]
 categories = ["web-programming::http-server", "network-programming"]
-exclude = [
-    "config.yaml",
-    ".github/",
-    "benches/",
-    "tests/",
-]
+exclude = ["config.yaml", ".github/", "benches/", "tests/"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -41,6 +36,18 @@ tracing-subscriber = { version = "0.3", features = ["json"] }
 # Global state
 once_cell = "1.19"
 
+# Performance monitoring
+parking_lot = "0.12"
+
+# Performance optimizations
+bytes = "1.5"
+smallvec = "1.11"
+arc-swap = "1.1"
+lru = "0.12"
+object-pool = "0.6"
+futures-core = "0.3"
+tokio-stream = "0.1"
+
 # Configuration
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
@@ -52,10 +59,22 @@ chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3.17"
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = { version = "0.5", features = ["html_reports"] }
 tokio-test = "0.4"
 urlencoding = "2.1"
 
+# Additional benchmarking tools
+pprof = { version = "0.12", features = ["flamegraph", "criterion"] }
+iai = "0.1"
+
 [[bench]]
 name = "proxy_latency"
+harness = false
+
+[[bench]]
+name = "performance_microbenchmarks"
+harness = false
+
+[[bench]]
+name = "comprehensive_performance"
 harness = false

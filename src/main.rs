@@ -22,16 +22,16 @@ async fn main() {
         eprintln!("Failed to load config from {}: {}", config_file, e);
         std::process::exit(1);
     });
-    let config = Arc::new(ConfigHolder::new(config));
+    let config_holder = Arc::new(ConfigHolder::new(config));
 
-    // Build our application with health check and config route
+    // Build our application with health check and config routes
     let app = Router::new()
         .route("/health", get(handlers::get_health_check))
         .route("/config", get(handlers::get_config))
         .route("/config/docs", get(handlers::get_config_docs))
         .route("/config/reload", post(handlers::reload_config))
         .fallback(handlers::proxy_handler)
-        .with_state(config);
+        .with_state(config_holder);
 
     let port = std::env::var("PORT")
         .unwrap_or_else(|_| "3000".to_string())
