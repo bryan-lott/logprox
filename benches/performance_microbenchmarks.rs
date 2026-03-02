@@ -14,7 +14,7 @@ fn bench_regex_compilation(c: &mut Criterion) {
         r"/metrics.*",
     ];
 
-    for pattern in patterns {
+    for pattern in &patterns {
         group.bench_with_input(
             BenchmarkId::new("compile_on_demand", pattern),
             &pattern,
@@ -31,12 +31,13 @@ fn bench_regex_compilation(c: &mut Criterion) {
     }
 
     // Test cached regex (simulating the optimization)
-    let mut cache = std::collections::HashMap::new();
+    let mut cache = std::collections::HashMap::<String, regex::Regex>::new();
 
-    for pattern in patterns {
+    for pattern in &patterns {
+        let pattern_str = *pattern;
         group.bench_with_input(
-            BenchmarkId::new("cached_regex", pattern),
-            &pattern,
+            BenchmarkId::new("cached_regex", pattern_str),
+            &pattern_str,
             |b, pattern| {
                 if !cache.contains_key(*pattern) {
                     cache.insert(pattern.to_string(), regex::Regex::new(pattern).unwrap());
@@ -91,7 +92,7 @@ fn bench_string_allocations(c: &mut Criterion) {
 }
 
 fn bench_config_locking(c: &mut Criterion) {
-    use std::sync::{Arc, RwLock};
+    use std::sync::Arc;
 
     let mut group = c.benchmark_group("config_locking");
 
@@ -102,6 +103,10 @@ fn bench_config_locking(c: &mut Criterion) {
             rules: vec![],
         },
         drop: logprox::config::DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: logprox::config::ResponseLoggingConfig {
             default: false,
             rules: vec![],
         },
@@ -138,11 +143,11 @@ fn bench_header_processing(c: &mut Criterion) {
 
     // Create sample headers
     let mut headers = HeaderMap::new();
-    headers.insert("content-type", "application/json");
-    headers.insert("authorization", "Bearer token123");
-    headers.insert("user-agent", "Mozilla/5.0");
-    headers.insert("accept", "application/json");
-    headers.insert("x-custom-header", "custom-value");
+    headers.insert("content-type", HeaderValue::from_static("application/json"));
+    headers.insert("authorization", HeaderValue::from_static("Bearer token123"));
+    headers.insert("user-agent", HeaderValue::from_static("Mozilla/5.0"));
+    headers.insert("accept", HeaderValue::from_static("application/json"));
+    headers.insert("x-custom-header", HeaderValue::from_static("custom-value"));
 
     // Current approach: Individual header processing
     group.bench_function("current_approach", |b| {

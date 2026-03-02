@@ -57,7 +57,7 @@ curl -X GET "http://localhost:3000/https://httpbin.org/api/test"
 ## ✨ Features
 
 - **📝 Conditional Logging**: Log requests based on path, method, headers, body
-- **🛡️ Request Control**: Drop requests based on configurable rules  
+- **🛡️ Request Control**: Drop requests based on configurable rules
 - **🔄 Hot Reload**: Update configuration without restarting
 - **📊 Built-in Monitoring**: Health checks and configuration endpoints
 
@@ -82,10 +82,10 @@ LogProx uses YAML configuration with environment variable support (`${VAR_NAME}`
 
 ### Environment Variables
 
-| Variable      | Default       | Description                |
-| ------------- | ------------- | -------------------------- |
-| `PORT`        | `3000`        | Server port                |
-| `CONFIG_FILE` | `config.yaml` | Configuration file path     |
+| Variable      | Default       | Description             |
+| ------------- | ------------- | ----------------------- |
+| `PORT`        | `3000`        | Server port             |
+| `CONFIG_FILE` | `config.yaml` | Configuration file path |
 
 ### Quick Reference
 
@@ -119,6 +119,7 @@ response_logging:
 ### Request Format
 
 Proxy requests use URL path encoding:
+
 ```
 http://localhost:3000/https://api.example.com/users/123
                     ↑
@@ -128,12 +129,14 @@ http://localhost:3000/https://api.example.com/users/123
 ### Pattern Matching
 
 **Regex Examples:**
+
 - `.*` - Match any characters
 - `^/api/` - Match paths starting with /api/
 - `\d+` - Match one or more digits
 - `(option1|option2)` - Match either option
 
 **Matching Logic:**
+
 - Path patterns: At least one must match
 - Methods: Must be in methods list (if specified)
 - Headers: All specified headers must match
@@ -142,12 +145,12 @@ http://localhost:3000/https://api.example.com/users/123
 
 ## 🔌 API Reference
 
-| Endpoint         | Method | Response                  |
-| ---------------- | ------ | ------------------------- |
-| `/health`        | GET    | `200 OK` with body `"OK"` |
-| `/config`        | GET    | Current JSON configuration |
+| Endpoint         | Method | Response                    |
+| ---------------- | ------ | --------------------------- |
+| `/health`        | GET    | `200 OK` with body `"OK"`   |
+| `/config`        | GET    | Current JSON configuration  |
 | `/config/docs`   | GET    | Configuration documentation |
-| `/config/reload` | POST   | Reload configuration       |
+| `/config/reload` | POST   | Reload configuration        |
 
 ### Usage Examples
 
@@ -183,9 +186,35 @@ RUST_LOG=debug ./target/release/logprox
 - **Regex errors**: Test patterns with regex debugger
 - **Permission denied**: Check config file permissions
 
-## 🤝 Contributing
+## 🏎️ Performance
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+### Per-Request Latency
+
+| Metric                     | Time     |
+| -------------------------- | -------- |
+| **Average proxy overhead** | **~3ms** |
+| Direct upstream (local)    | 22ms     |
+| Proxied request (local)    | 25ms     |
+
+### Running Benchmarks
+
+```bash
+# Micro-benchmarks
+cargo bench --bench performance_microbenchmarks
+
+# Comprehensive benchmarks
+cargo bench --bench comprehensive_performance
+```
+
+### Micro-benchmark Highlights
+
+| Operation                     | Time     |
+| ----------------------------- | -------- |
+| Cached regex lookup           | 10-27 ns |
+| Header iteration (6 headers)  | 15 ns    |
+| Config lock (single)          | 14 ns    |
+| String operations (optimized) | 17 ns    |
+| YAML config parsing           | 10 µs    |
 
 ## 📄 License
 
