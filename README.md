@@ -1,11 +1,19 @@
-# LogProx 🏗️
+# LogProx
 
 > HTTP proxy with conditional logging and request control
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange)](https://www.rust-lang.org/)
 
-## 🚀 Quick Start
+## Why?!
+
+At a previous company there was an external API we integrated with. Its versioning strategy was somewhat
+aggressive and we would incur penalties for accessing deprecated API versions. The idea for logprox was
+born out of that restriction. Old API calls (sometimes saved on someone's machine, test calls, etc) would
+potentially put the company at risk. If all calls were proxied through a logging mechanism, not only could
+we determine where the deprecated calls were coming from, we could block those calls entirely.
+
+## Quick Start
 
 ### Installation
 
@@ -54,29 +62,29 @@ Start LogProx and test:
 curl -X GET "http://localhost:3000/https://httpbin.org/api/test"
 ```
 
-## ✨ Features
+## Features
 
-- **📝 Conditional Logging**: Log requests based on path, method, headers, body
-- **🛡️ Request Control**: Drop requests based on configurable rules
-- **🔄 Hot Reload**: Update configuration without restarting
-- **📊 Built-in Monitoring**: Health checks and configuration endpoints
+- **Conditional Logging**: Log requests based on path, method, headers, body
+- **Request Control**: Drop requests based on configurable rules
+- **Hot Reload**: Update configuration without restarting
+- **Built-in Monitoring**: Health checks and configuration endpoints
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────┐    ┌───────────┐    ┌────────────────┐
 │   Client    │───▶│  LogProx  │───▶│  Upstream API  │
 │ Application │    │           │    │                │
 └─────────────┘    └───────────┘    └────────────────┘
-                          │
-                          ▼
-                    ┌────────────┐
-                    │   Logs &   │
-                    │  Metrics   │
-                    └────────────┘
+                         │
+                         ▼
+                   ┌────────────┐
+                   │   Logs &   │
+                   │  Metrics   │
+                   └────────────┘
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 LogProx uses YAML configuration with environment variable support (`${VAR_NAME}`).
 
@@ -143,7 +151,7 @@ http://localhost:3000/https://api.example.com/users/123
 - Body patterns: At least one must match
 - Rule evaluation: First match wins
 
-## 🔌 API Reference
+## API Reference
 
 | Endpoint         | Method | Response                    |
 | ---------------- | ------ | --------------------------- |
@@ -168,7 +176,7 @@ curl -X POST http://localhost:3000/config/reload
 curl http://localhost:3000/config/docs
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Configuration Issues
 
@@ -186,7 +194,7 @@ RUST_LOG=debug ./target/release/logprox
 - **Regex errors**: Test patterns with regex debugger
 - **Permission denied**: Check config file permissions
 
-## 🏎️ Performance
+## Performance
 
 ### Per-Request Latency
 
@@ -216,6 +224,6 @@ cargo bench --bench comprehensive_performance
 | String operations (optimized) | 17 ns    |
 | YAML config parsing           | 10 µs    |
 
-## 📄 License
+## License
 
 **GNU GPLv3** © [Bryan Lott](https://github.com/bryan-lott)
