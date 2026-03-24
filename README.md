@@ -18,6 +18,11 @@ we determine where the deprecated calls were coming from, we could block those c
 ### Installation
 
 ```bash
+# Install via cargo
+cargo install logprox
+```
+
+```bash
 # Build from source
 git clone https://github.com/bryan-lott/logprox.git
 cd logprox
