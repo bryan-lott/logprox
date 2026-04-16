@@ -110,6 +110,7 @@ fn bench_config_locking(c: &mut Criterion) {
             default: false,
             rules: vec![],
         },
+        upstream: Default::default(),
     }));
 
     // Current approach: Multiple separate lock acquisitions

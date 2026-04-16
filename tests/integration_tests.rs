@@ -29,6 +29,7 @@ async fn test_health_check() {
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
         response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        upstream: Default::default(),
     }));
     let app = Router::new()
         .route("/health", axum::routing::get(get_health_check))
@@ -54,6 +55,7 @@ async fn test_get_config() {
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
         response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        upstream: Default::default(),
     }));
     let app = Router::new()
         .route("/config", axum::routing::get(get_config))
@@ -82,6 +84,7 @@ async fn test_get_config_docs() {
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
         response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        upstream: Default::default(),
     }));
 
     let app = Router::new()
@@ -129,6 +132,7 @@ async fn test_proxy_handler_drop_request() {
             }],
         },
         response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        upstream: Default::default(),
     }));
 
     let app = Router::new()
@@ -268,6 +272,7 @@ async fn test_timeout_with_short_timeout() {
         },
         drop: DropConfig { default: false, rules: vec![] },
         response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        upstream: Default::default(),
     };
 
     let app = create_test_app(config);
@@ -312,6 +317,7 @@ async fn test_timeout_with_no_timeout_rule() {
         },
         drop: DropConfig { default: false, rules: vec![] },
         response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        upstream: Default::default(),
     };
 
     let app = create_test_app(config);
@@ -333,6 +339,7 @@ async fn test_upstream_error_handling() {
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
         response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        upstream: Default::default(),
     };
 
     let app = create_test_app(config);
@@ -354,6 +361,7 @@ async fn test_malformed_upstream_url() {
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
         response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        upstream: Default::default(),
     };
 
     let app = create_test_app(config);
@@ -375,6 +383,7 @@ async fn test_empty_upstream_url() {
         logging: LoggingConfig { default: false, rules: vec![] },
         drop: DropConfig { default: false, rules: vec![] },
         response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        upstream: Default::default(),
     };
 
     let app = create_test_app(config);

@@ -114,13 +114,16 @@ fn test_config_yaml() {
 fn test_should_log_request() {
     let config = Config::from_file("config.yaml").unwrap();
 
-    // Test matching API request
+    // Test matching rule 1 "Log API requests with timeout":
+    // path must match "httpbin.org.*", method POST/PUT, content-type "application/json.*"
     let api_req = create_test_request(
         Method::POST,
-        "/anything/test",
+        "/https://httpbin.org/anything",
         vec![("content-type", "application/json")],
     );
-    assert!(config.should_log_request(&api_req, "").is_some());
+    let api_capture = config.should_log_request(&api_req, "").unwrap();
+    assert!(api_capture.body);
+    assert!(api_capture.method);
 
     // Test matching health check
     let health_req = create_test_request(Method::GET, "/health", vec![]);
@@ -306,6 +309,7 @@ fn test_should_drop_request_default() {
             default: false,
             rules: vec![],
         },
+        upstream: Default::default(),
     };
 
     let req = create_test_request(Method::GET, "/any", vec![]);
@@ -336,6 +340,7 @@ fn test_config_holder() {
             default: false,
             rules: vec![],
         },
+        upstream: Default::default(),
     };
     let holder = ConfigHolder::new(initial_config);
 
@@ -396,6 +401,7 @@ response_logging:
             default: false,
             rules: vec![],
         },
+        upstream: Default::default(),
     };
 
     let holder = ConfigHolder::new(config);
@@ -553,6 +559,7 @@ fn test_should_log_response() {
             default: true,
             rules: vec![],
         },
+        upstream: Default::default(),
     };
     assert!(config_with_default
         .should_log_response(200, &headers, "")
