@@ -32,13 +32,13 @@ cargo build --release
 ### Basic Usage
 
 ```bash
-# Start with default config
+# Start with default config (reads config.yaml)
 ./target/release/logprox
 
-# Specify custom config
-./target/release/logprox --config my-config.yaml
+# Specify custom config via env var
+CONFIG_FILE=my-config.yaml ./target/release/logprox
 
-# Set environment variables
+# Override port
 PORT=8080 CONFIG_FILE=config.yaml ./target/release/logprox
 ```
 
@@ -203,11 +203,11 @@ RUST_LOG=debug ./target/release/logprox
 
 ### Per-Request Latency
 
-| Metric                     | Time     |
-| -------------------------- | -------- |
-| **Average proxy overhead** | **~3ms** |
-| Direct upstream (local)    | 22ms     |
-| Proxied request (local)    | 25ms     |
+| Metric                     | Time      |
+| -------------------------- | --------- |
+| **Average proxy overhead** | **~35µs** |
+| Direct upstream (local)    | ~40µs     |
+| Proxied request (local)    | ~75µs     |
 
 ### Running Benchmarks
 

@@ -96,6 +96,28 @@ drop:
         status_code: 400
         body: "Malicious content detected in request body."
 
+upstream:
+  # SSRF protection — controls which upstream targets the proxy may reach.
+  # Defaults are secure: only http/https, private/loopback IPs blocked.
+
+  # Permit requests to private/loopback/link-local IP ranges (e.g. 127.x, 10.x, 192.168.x).
+  # Enable when proxying to internal services.
+  allow_private_networks: false
+
+  # Schemes allowed. Default: http and https only.
+  # allowed_schemes:
+  #   - "http"
+  #   - "https"
+
+  # If set, ONLY these hosts are permitted (exact match). Takes priority over denied_hosts.
+  # allowed_hosts:
+  #   - "api.example.com"
+  #   - "10.0.0.1"
+
+  # Hosts always blocked regardless of other settings.
+  # denied_hosts:
+  #   - "169.254.169.254"  # AWS metadata service
+
 response_logging:
   # Default behavior if no rules match
   default: false

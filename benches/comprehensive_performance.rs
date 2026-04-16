@@ -111,7 +111,7 @@ drop:
 
     group.bench_function("parse_config", |b| {
         b.iter(|| {
-            let config: Config = serde_yaml::from_str(black_box(yaml_content)).unwrap();
+            let config: Config = serde_norway::from_str(black_box(yaml_content)).unwrap();
             black_box(config);
         });
     });
