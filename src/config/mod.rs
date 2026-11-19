@@ -362,17 +362,12 @@ impl Config {
         }
 
         // Body check
-        if !conditions.body.patterns.is_empty()
-            && !conditions
+        conditions.body.patterns.is_empty()
+            || conditions
                 .body
                 .patterns
                 .iter()
                 .any(|p| Self::match_pattern(p, body_content))
-        {
-            return false;
-        }
-
-        true
     }
 
     pub fn should_log_response(
@@ -422,16 +417,11 @@ impl Config {
             }
         }
 
-        if !conditions.body.patterns.is_empty()
-            && !conditions
+        conditions.body.patterns.is_empty()
+            || conditions
                 .body
                 .patterns
                 .iter()
                 .any(|p| Self::match_pattern(p, body_content))
-        {
-            return false;
-        }
-
-        true
     }
 }
