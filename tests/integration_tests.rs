@@ -60,7 +60,12 @@ async fn spawn_upstream() -> String {
         .route("/delete", axum::routing::delete(echo))
         .route("/headers", any(echo))
         .route("/status/:code", any(status))
-        .route("/delay/:secs", any(delay));
+        .route("/delay/:secs", any(delay))
+        // A normal header plus a hop-by-hop one, which the proxy must not pass back.
+        .route(
+            "/response-headers",
+            get(|| async { ([("x-upstream", "kept"), ("proxy-authenticate", "Basic")], "ok") }),
+        );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -525,4 +530,142 @@ async fn test_empty_upstream_url() {
 
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+/// Status the proxy returns for `uri` under `config` (no body needed).
+async fn proxied_status(config: Config, method: &str, uri: &str, body: Vec<u8>) -> StatusCode {
+    let app = create_test_app(config);
+    let req = Request::builder()
+        .method(method)
+        .uri(uri)
+        .body(Body::from(body))
+        .unwrap();
+    app.oneshot(req).await.unwrap().status()
+}
+
+fn base_config() -> Config {
+    Config {
+        server: ServerConfig { port: 3000 },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        upstream: Default::default(),
+    }
+}
+
+#[tokio::test]
+async fn test_response_headers_forwarded_but_hop_by_hop_stripped() {
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(base_config()));
+    let req = Request::builder()
+        .uri(format!("/{upstream}/response-headers"))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(resp.headers().get("x-upstream").unwrap(), "kept");
+    assert!(resp.headers().get("proxy-authenticate").is_none());
+}
+
+#[tokio::test]
+async fn test_body_size_limit_is_10_mib() {
+    let upstream = spawn_upstream().await;
+    let uri = format!("/{upstream}/post");
+    let limit = 10 * 1024 * 1024;
+    // Well over any mis-computed smaller limit, still under 10 MiB: forwarded.
+    assert_eq!(
+        proxied_status(allow_loopback(base_config()), "POST", &uri, vec![b'x'; 2 * 1024 * 1024]).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        proxied_status(allow_loopback(base_config()), "POST", &uri, vec![b'x'; limit]).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        proxied_status(allow_loopback(base_config()), "POST", &uri, vec![b'x'; limit + 1]).await,
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+}
+
+#[tokio::test]
+async fn test_ssrf_blocks_private_ipv4_literals_by_default() {
+    // Default UpstreamConfig: private networks blocked. Nothing is listening on these; the
+    // proxy must refuse before connecting.
+    for host in [
+        "127.0.0.1",
+        "10.0.0.1",
+        "192.168.1.1",
+        "172.16.0.1",
+        "169.254.169.254",
+        "0.0.0.0",
+    ] {
+        let status = proxied_status(base_config(), "GET", &format!("/http://{host}:9/x"), vec![]).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{host} should be blocked");
+    }
+}
+
+#[tokio::test]
+async fn test_ssrf_allows_loopback_when_private_networks_allowed() {
+    let upstream = spawn_upstream().await;
+    let status = proxied_status(
+        allow_loopback(base_config()),
+        "GET",
+        &format!("/{upstream}/get"),
+        vec![],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_ssrf_rejects_disallowed_scheme() {
+    let status = proxied_status(base_config(), "GET", "/ftp://example.com/file", vec![]).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_ssrf_allowlist_admits_only_listed_hosts() {
+    let upstream = spawn_upstream().await;
+    // The allowlist takes priority over the private-network block.
+    let allowlisted = || {
+        let mut config = base_config();
+        config.upstream.allowed_hosts = vec!["127.0.0.1".to_string()];
+        config
+    };
+    assert_eq!(
+        proxied_status(allowlisted(), "GET", &format!("/{upstream}/get"), vec![]).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        proxied_status(allowlisted(), "GET", "/http://example.com/", vec![]).await,
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn test_ssrf_denylist_blocks_listed_host() {
+    let upstream = spawn_upstream().await;
+    let denying = |host: &str| {
+        let mut config = allow_loopback(base_config());
+        config.upstream.denied_hosts = vec![host.to_string()];
+        config
+    };
+    assert_eq!(
+        proxied_status(denying("127.0.0.1"), "GET", &format!("/{upstream}/get"), vec![]).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        proxied_status(denying("10.9.9.9"), "GET", &format!("/{upstream}/get"), vec![]).await,
+        StatusCode::OK
+    );
 }
