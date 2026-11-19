@@ -1,11 +1,11 @@
+use crate::config::{CaptureConfig, ConfigHolder, ResponseCaptureConfig};
+use axum::extract::Request;
 use axum::{
     body::Body,
     extract::State,
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
-use axum::extract::Request;
-use crate::config::{CaptureConfig, ConfigHolder, ResponseCaptureConfig};
 use std::sync::Arc;
 use std::sync::LazyLock;
 use tracing::info;
@@ -77,8 +77,13 @@ static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
 
 /// Hop-by-hop headers that must not be forwarded per RFC 7230 §6.1.
 const HOP_BY_HOP: &[&str] = &[
-    "connection", "keep-alive", "proxy-authenticate",
-    "proxy-authorization", "te", "trailers", "transfer-encoding",
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
     "upgrade",
 ];
 
@@ -129,7 +134,15 @@ pub async fn proxy_handler(State(config): State<Arc<ConfigHolder>>, req: Request
         // Log the drop response if response_logging is configured
         let cfg = config.get();
         if let Some(capture) = cfg.should_log_response(response.status().as_u16(), response.headers(), "") {
-            log_response(&method_str, &req_path, response.status().as_u16(), response.headers(), capture, start_time.elapsed(), "");
+            log_response(
+                &method_str,
+                &req_path,
+                response.status().as_u16(),
+                response.headers(),
+                capture,
+                start_time.elapsed(),
+                "",
+            );
         }
 
         return response;
@@ -154,11 +167,17 @@ pub async fn proxy_handler(State(config): State<Arc<ConfigHolder>>, req: Request
     let (timeout, log_request_config) = {
         let cfg = config.get();
 
-        let timeout = cfg.logging.rules.iter()
-            .find(|rule| cfg.matches_rule_parts(&method_str, &req_path, &headers, &body_content, &rule.match_conditions))
+        let timeout = cfg
+            .logging
+            .rules
+            .iter()
+            .find(|rule| {
+                cfg.matches_rule_parts(&method_str, &req_path, &headers, &body_content, &rule.match_conditions)
+            })
             .and_then(|rule| rule.timeout.as_deref().and_then(parse_duration_string));
 
-        let log_cfg = cfg.should_log_request_parts(&method_str, &req_path, &headers, &body_content)
+        let log_cfg = cfg
+            .should_log_request_parts(&method_str, &req_path, &headers, &body_content)
             .cloned();
 
         (timeout, log_cfg)
@@ -166,7 +185,15 @@ pub async fn proxy_handler(State(config): State<Arc<ConfigHolder>>, req: Request
 
     // --- Log request if configured ---
     if let Some(ref capture_config) = log_request_config {
-        log_request(&method_str, &req_path, &headers, capture_config, std::time::Duration::default(), &body_content, timeout);
+        log_request(
+            &method_str,
+            &req_path,
+            &headers,
+            capture_config,
+            std::time::Duration::default(),
+            &body_content,
+            timeout,
+        );
     }
 
     // --- Build and send upstream request ---
@@ -192,8 +219,7 @@ pub async fn proxy_handler(State(config): State<Arc<ConfigHolder>>, req: Request
     };
 
     // --- Build response, forwarding upstream headers ---
-    let status = StatusCode::from_u16(upstream_resp.status().as_u16())
-        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let status = StatusCode::from_u16(upstream_resp.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
     let mut response_builder = Response::builder().status(status);
     let mut resp_headers = HeaderMap::new();
@@ -212,9 +238,9 @@ pub async fn proxy_handler(State(config): State<Arc<ConfigHolder>>, req: Request
 
     let resp_body_bytes = match upstream_resp.bytes().await {
         Ok(b) => b,
-        Err(e) => return ProxyError::UpstreamRequestFailed(
-            format!("Failed to read response body: {}", e)
-        ).into_response(),
+        Err(e) => {
+            return ProxyError::UpstreamRequestFailed(format!("Failed to read response body: {}", e)).into_response()
+        }
     };
 
     // Decode response body only if response_logging is active (avoids allocation otherwise)
@@ -233,15 +259,16 @@ pub async fn proxy_handler(State(config): State<Arc<ConfigHolder>>, req: Request
     // --- Log response if configured ---
     {
         let cfg = config.get();
-        if let Some(capture) = cfg.should_log_response(
-            final_resp.status().as_u16(),
-            &resp_headers,
-            &resp_body_content,
-        ) {
+        if let Some(capture) = cfg.should_log_response(final_resp.status().as_u16(), &resp_headers, &resp_body_content)
+        {
             log_response(
-                &method_str, &req_path,
-                final_resp.status().as_u16(), &resp_headers,
-                capture, start_time.elapsed(), &resp_body_content,
+                &method_str,
+                &req_path,
+                final_resp.status().as_u16(),
+                &resp_headers,
+                capture,
+                start_time.elapsed(),
+                &resp_body_content,
             );
         }
     }
@@ -306,7 +333,10 @@ fn log_request(
         log_entry["body"] = body_content.into();
     }
 
-    info!("{}", serde_json::to_string(&log_entry).unwrap_or_else(|_| "Failed to serialize request log".to_string()));
+    info!(
+        "{}",
+        serde_json::to_string(&log_entry).unwrap_or_else(|_| "Failed to serialize request log".to_string())
+    );
 }
 
 fn log_response(
@@ -348,7 +378,10 @@ fn log_response(
         log_entry["body"] = body_content.into();
     }
 
-    info!("{}", serde_json::to_string(&log_entry).unwrap_or_else(|_| "Failed to serialize response log".to_string()));
+    info!(
+        "{}",
+        serde_json::to_string(&log_entry).unwrap_or_else(|_| "Failed to serialize response log".to_string())
+    );
 }
 
 fn is_private_ipv6(ip: std::net::Ipv6Addr) -> bool {
@@ -360,10 +393,7 @@ fn is_private_ipv6(ip: std::net::Ipv6Addr) -> bool {
 }
 
 /// Returns Err with a reason string if the upstream URL should be blocked.
-fn validate_upstream_ssrf(
-    url_str: &str,
-    cfg: &crate::config::UpstreamConfig,
-) -> Result<(), &'static str> {
+fn validate_upstream_ssrf(url_str: &str, cfg: &crate::config::UpstreamConfig) -> Result<(), &'static str> {
     let url = url_str.parse::<reqwest::Url>().map_err(|_| "invalid URL")?;
 
     // Scheme check

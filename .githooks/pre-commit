@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Block commits whose *staged* Rust code is not rustfmt-formatted. CI runs `cargo fmt --check` too.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Fix:                    cargo fmt --all, then re-stage (git add -u)
+# Skip once:              git commit --no-verify
+#
+# Checks the staged blob of each added/modified .rs file (not the working tree), using the edition from
+# the nearest Cargo.toml and any rustfmt.toml next to it, so what is checked is exactly what is committed.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+# Hooks can run with a minimal environment (GUI clients, IDEs): look where rustup installs too.
+PATH="$PATH:${CARGO_HOME:-${HOME:-/nonexistent}/.cargo}/bin"
+
+files=()
+while IFS= read -r -d '' f; do files+=("$f"); done < <(git diff --cached --name-only -z --diff-filter=ACMR -- '*.rs')
+[ ${#files[@]} -eq 0 ] && exit 0
+
+if ! command -v rustfmt >/dev/null; then
+    echo "pre-commit: rustfmt not found; cannot check formatting (install: rustup component add rustfmt)"
+    exit 1
+fi
+
+staged=$(mktemp)
+trap 'rm -f "$staged"' EXIT
+status=0
+for f in "${files[@]}"; do
+    dir=$(dirname -- "$f")
+    while [ ! -f "$dir/Cargo.toml" ] && [ "$dir" != . ]; do dir=$(dirname -- "$dir"); done
+    edition=$(sed -n 's/^edition *= *"\([0-9]*\)".*/\1/p' "$dir/Cargo.toml" 2>/dev/null | head -n 1)
+    config=()
+    for c in "$dir/rustfmt.toml" "$dir/.rustfmt.toml"; do [ -f "$c" ] && config=(--config-path "$c") && break; done
+    git show ":$f" >"$staged"
+    # rustfmt --check exits 0 on stdin even when it prints a diff, so compare its output instead.
+    if ! rustfmt --edition "${edition:-2021}" ${config[@]+"${config[@]}"} <"$staged" 2>/dev/null | cmp -s - "$staged"; then
+        echo "pre-commit: not rustfmt-formatted (staged version): $f"
+        status=1
+    fi
+done
+[ $status -eq 0 ] || echo "pre-commit: run 'cargo fmt --all', re-stage, and commit again"
+exit $status

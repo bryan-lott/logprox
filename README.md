@@ -229,6 +229,21 @@ cargo bench --bench comprehensive_performance
 | String operations (optimized) | 17 ns    |
 | YAML config parsing           | 10 µs    |
 
+## Development
+
+Enable the repo's git hooks once per clone:
+
+```bash
+git config core.hooksPath .githooks
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+The pre-commit hook blocks commits whose Rust code isn't `cargo fmt`-formatted.
+CI (`.github/workflows/ci.yml`) checks formatting, clippy (`-D warnings`),
+builds and tests on Linux, macOS and Windows, builds and tests on the MSRV
+(Rust 1.80), and runs `cargo deny`. The tests need no network: forwarding
+tests run against an in-process upstream.
+
 ## License
 
 **GNU GPLv3** © [Bryan Lott](https://github.com/bryan-lott)

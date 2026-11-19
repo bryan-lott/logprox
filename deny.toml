@@ -1,0 +1,20 @@
+# cargo deny check  (CI runs advisories, bans, licenses, sources)
+
+[advisories]
+yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained; no vulnerability and no drop-in replacement yet" },
+]
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "Unicode-3.0"]
+# logprox itself is GPL-3.0 (Cargo.toml); all dependency licences above are GPL-compatible.
+exceptions = [{ allow = ["GPL-3.0"], crate = "logprox" }]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

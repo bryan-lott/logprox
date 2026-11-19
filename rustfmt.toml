@@ -1,0 +1,2 @@
+# cargo fmt configuration; CI and the pre-commit hook run cargo fmt --check.
+max_width = 120

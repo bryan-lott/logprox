@@ -11,8 +11,7 @@ fn test_extract_upstream_url_valid() {
         "http://example.com/test"
     );
     assert_eq!(
-        logprox::handlers::proxy::extract_upstream_url("/https://api.example.com/v1/users/123")
-            .unwrap(),
+        logprox::handlers::proxy::extract_upstream_url("/https://api.example.com/v1/users/123").unwrap(),
         "https://api.example.com/v1/users/123"
     );
 }

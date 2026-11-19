@@ -1,7 +1,10 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use logprox::config::{Config, ConfigHolder, ServerConfig, LoggingConfig, DropConfig, DropRule, MatchConditions, PathMatch, BodyMatch, DropResponse, ResponseLoggingConfig, LoggingRule, CaptureConfig};
+use logprox::config::{
+    BodyMatch, CaptureConfig, Config, ConfigHolder, DropConfig, DropResponse, DropRule, LoggingConfig, LoggingRule,
+    MatchConditions, PathMatch, ResponseLoggingConfig, ServerConfig,
+};
 use logprox::{get_config, get_config_docs, get_health_check, proxy_handler, reload_config};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,13 +25,75 @@ fn create_test_app(config: Config) -> Router {
         .with_state(config)
 }
 
+/// A local stand-in for httpbin.org: the forwarding tests stay hermetic (no network, no flakes).
+/// Endpoints mirror the httpbin ones the tests used. Returns the base URL, e.g. `http://127.0.0.1:41234`.
+async fn spawn_upstream() -> String {
+    use axum::extract::{Path, Request as UpReq};
+    use axum::response::IntoResponse;
+    use axum::routing::{any, get, post};
+    use axum::Json;
+
+    async fn echo(req: UpReq) -> Json<serde_json::Value> {
+        let headers: serde_json::Map<String, serde_json::Value> = req
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or_default().into()))
+            .collect();
+        let method = req.method().to_string();
+        let path = req.uri().path().to_string();
+        let body = axum::body::to_bytes(req.into_body(), usize::MAX).await.unwrap();
+        let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap_or(serde_json::Value::Null);
+        Json(serde_json::json!({ "method": method, "path": path, "headers": headers, "json": json }))
+    }
+    async fn status(Path(code): Path<u16>) -> impl IntoResponse {
+        StatusCode::from_u16(code).unwrap()
+    }
+    async fn delay(Path(secs): Path<u64>) -> &'static str {
+        tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+        "done"
+    }
+
+    let app = Router::new()
+        .route("/get", get(echo))
+        .route("/post", post(echo))
+        .route("/put", axum::routing::put(echo))
+        .route("/delete", axum::routing::delete(echo))
+        .route("/headers", any(echo))
+        .route("/status/:code", any(status))
+        .route("/delay/:secs", any(delay))
+        // A normal header plus a hop-by-hop one, which the proxy must not pass back.
+        .route(
+            "/response-headers",
+            get(|| async { ([("x-upstream", "kept"), ("proxy-authenticate", "Basic")], "ok") }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{addr}")
+}
+
+/// The proxy blocks loopback upstreams by default (SSRF guard); the local upstream needs it allowed.
+fn allow_loopback(mut config: Config) -> Config {
+    config.upstream.allow_private_networks = true;
+    config
+}
+
 #[tokio::test]
 async fn test_health_check() {
     let config = Arc::new(ConfigHolder::new(Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     }));
     let app = Router::new()
@@ -52,9 +117,18 @@ async fn test_health_check() {
 async fn test_get_config() {
     let config = Arc::new(ConfigHolder::new(Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     }));
     let app = Router::new()
@@ -81,9 +155,18 @@ async fn test_get_config() {
 async fn test_get_config_docs() {
     let config = Arc::new(ConfigHolder::new(Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     }));
 
@@ -114,30 +197,36 @@ async fn test_get_config_docs() {
 async fn test_proxy_handler_drop_request() {
     let config = Arc::new(ConfigHolder::new(Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         drop: DropConfig {
             default: false,
             rules: vec![DropRule {
                 name: "Test drop".to_string(),
                 match_conditions: MatchConditions {
-                    path: PathMatch { patterns: vec!["/drop.*".to_string()] },
+                    path: PathMatch {
+                        patterns: vec!["/drop.*".to_string()],
+                    },
                     methods: vec![],
                     headers: HashMap::new(),
                     body: BodyMatch { patterns: vec![] },
                 },
                 response: DropResponse {
                     status_code: 403,
-                     body: Some("Dropped".to_string()),
+                    body: Some("Dropped".to_string()),
                 },
             }],
         },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     }));
 
-    let app = Router::new()
-        .fallback(proxy_handler)
-        .with_state(config);
+    let app = Router::new().fallback(proxy_handler).with_state(config);
 
     let req = Request::builder()
         .method("GET")
@@ -154,12 +243,12 @@ async fn test_proxy_handler_drop_request() {
 
 #[tokio::test]
 async fn test_forward_get_request() {
-    let config = load_test_config();
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(load_test_config()));
 
     let req = Request::builder()
         .method("GET")
-        .uri("/https://httpbin.org/get")
+        .uri(format!("/{upstream}/get"))
         .body(Body::empty())
         .unwrap();
 
@@ -168,18 +257,19 @@ async fn test_forward_get_request() {
 
     let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["url"], "https://httpbin.org/get");
+    assert_eq!(json["method"], "GET");
+    assert_eq!(json["path"], "/get");
 }
 
 #[tokio::test]
 async fn test_forward_post_request() {
-    let config = load_test_config();
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(load_test_config()));
 
     let test_body = r#"{"test": "data"}"#;
     let req = Request::builder()
         .method("POST")
-        .uri("/https://httpbin.org/post")
+        .uri(format!("/{upstream}/post"))
         .header("content-type", "application/json")
         .body(Body::from(test_body))
         .unwrap();
@@ -194,30 +284,33 @@ async fn test_forward_post_request() {
 
 #[tokio::test]
 async fn test_forward_various_methods() {
-    let config = load_test_config();
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(load_test_config()));
 
     let methods = [("GET", "get"), ("PUT", "put"), ("DELETE", "delete")];
     for (method, path) in methods {
         let req = Request::builder()
             .method(method)
-            .uri(&format!("/https://httpbin.org/{}", path))
+            .uri(format!("/{upstream}/{path}"))
             .body(Body::empty())
             .unwrap();
 
         let resp = app.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["method"], method);
     }
 }
 
 #[tokio::test]
 async fn test_header_forwarding() {
-    let config = load_test_config();
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(load_test_config()));
 
     let req = Request::builder()
         .method("GET")
-        .uri("/https://httpbin.org/headers")
+        .uri(format!("/{upstream}/headers"))
         .header("x-custom-header", "test-value")
         .body(Body::empty())
         .unwrap();
@@ -225,19 +318,19 @@ async fn test_header_forwarding() {
     let resp = app.oneshot(req).await.unwrap();
     let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["headers"]["X-Custom-Header"], "test-value");
+    assert_eq!(json["headers"]["x-custom-header"], "test-value");
 }
 
 #[tokio::test]
 async fn test_forward_various_status_codes() {
-    let config = load_test_config();
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(load_test_config()));
 
     let status_tests = [200, 404, 500, 503];
     for status in status_tests {
         let req = Request::builder()
             .method("GET")
-            .uri(&format!("/https://httpbin.org/status/{}", status))
+            .uri(format!("/{upstream}/status/{status}"))
             .body(Body::empty())
             .unwrap();
 
@@ -255,7 +348,9 @@ async fn test_timeout_with_short_timeout() {
             rules: vec![LoggingRule {
                 name: "Short timeout".into(),
                 match_conditions: MatchConditions {
-                    path: PathMatch { patterns: vec!["httpbin.org/delay.*".to_string()] },
+                    path: PathMatch {
+                        patterns: vec!["/delay/.*".to_string()],
+                    },
                     methods: vec![],
                     headers: HashMap::new(),
                     body: BodyMatch { patterns: vec![] },
@@ -267,19 +362,26 @@ async fn test_timeout_with_short_timeout() {
                     path: true,
                     timing: true,
                 },
-                timeout: Some("2s".to_string()),
+                timeout: Some("1s".to_string()),
             }],
         },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     };
 
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(config));
 
     let req = Request::builder()
         .method("GET")
-        .uri("/https://httpbin.org/delay/10")
+        .uri(format!("/{upstream}/delay/5"))
         .body(Body::empty())
         .unwrap();
 
@@ -300,7 +402,9 @@ async fn test_timeout_with_no_timeout_rule() {
             rules: vec![LoggingRule {
                 name: "No timeout".into(),
                 match_conditions: MatchConditions {
-                    path: PathMatch { patterns: vec!["httpbin.org/.*".to_string()] },
+                    path: PathMatch {
+                        patterns: vec!["/delay/.*".to_string()],
+                    },
                     methods: vec![],
                     headers: HashMap::new(),
                     body: BodyMatch { patterns: vec![] },
@@ -315,16 +419,23 @@ async fn test_timeout_with_no_timeout_rule() {
                 timeout: None,
             }],
         },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     };
 
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(config));
 
     let req = Request::builder()
         .method("GET")
-        .uri("/https://httpbin.org/delay/1")
+        .uri(format!("/{upstream}/delay/1"))
         .body(Body::empty())
         .unwrap();
 
@@ -336,9 +447,18 @@ async fn test_timeout_with_no_timeout_rule() {
 async fn test_upstream_error_handling() {
     let config = Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     };
 
@@ -358,9 +478,18 @@ async fn test_upstream_error_handling() {
 async fn test_malformed_upstream_url() {
     let config = Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     };
 
@@ -380,20 +509,163 @@ async fn test_malformed_upstream_url() {
 async fn test_empty_upstream_url() {
     let config = Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     };
 
     let app = create_test_app(config);
 
+    let req = Request::builder().method("GET").uri("/").body(Body::empty()).unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+/// Status the proxy returns for `uri` under `config` (no body needed).
+async fn proxied_status(config: Config, method: &str, uri: &str, body: Vec<u8>) -> StatusCode {
+    let app = create_test_app(config);
     let req = Request::builder()
-        .method("GET")
-        .uri("/")
+        .method(method)
+        .uri(uri)
+        .body(Body::from(body))
+        .unwrap();
+    app.oneshot(req).await.unwrap().status()
+}
+
+fn base_config() -> Config {
+    Config {
+        server: ServerConfig { port: 3000 },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        upstream: Default::default(),
+    }
+}
+
+#[tokio::test]
+async fn test_response_headers_forwarded_but_hop_by_hop_stripped() {
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(base_config()));
+    let req = Request::builder()
+        .uri(format!("/{upstream}/response-headers"))
         .body(Body::empty())
         .unwrap();
 
     let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(resp.headers().get("x-upstream").unwrap(), "kept");
+    assert!(resp.headers().get("proxy-authenticate").is_none());
+}
+
+#[tokio::test]
+async fn test_body_size_limit_is_10_mib() {
+    let upstream = spawn_upstream().await;
+    let uri = format!("/{upstream}/post");
+    let limit = 10 * 1024 * 1024;
+    // Well over any mis-computed smaller limit, still under 10 MiB: forwarded.
+    assert_eq!(
+        proxied_status(allow_loopback(base_config()), "POST", &uri, vec![b'x'; 2 * 1024 * 1024]).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        proxied_status(allow_loopback(base_config()), "POST", &uri, vec![b'x'; limit]).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        proxied_status(allow_loopback(base_config()), "POST", &uri, vec![b'x'; limit + 1]).await,
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+}
+
+#[tokio::test]
+async fn test_ssrf_blocks_private_ipv4_literals_by_default() {
+    // Default UpstreamConfig: private networks blocked. Nothing is listening on these; the
+    // proxy must refuse before connecting.
+    for host in [
+        "127.0.0.1",
+        "10.0.0.1",
+        "192.168.1.1",
+        "172.16.0.1",
+        "169.254.169.254",
+        "0.0.0.0",
+    ] {
+        let status = proxied_status(base_config(), "GET", &format!("/http://{host}:9/x"), vec![]).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{host} should be blocked");
+    }
+}
+
+#[tokio::test]
+async fn test_ssrf_allows_loopback_when_private_networks_allowed() {
+    let upstream = spawn_upstream().await;
+    let status = proxied_status(
+        allow_loopback(base_config()),
+        "GET",
+        &format!("/{upstream}/get"),
+        vec![],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_ssrf_rejects_disallowed_scheme() {
+    let status = proxied_status(base_config(), "GET", "/ftp://example.com/file", vec![]).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_ssrf_allowlist_admits_only_listed_hosts() {
+    let upstream = spawn_upstream().await;
+    // The allowlist takes priority over the private-network block.
+    let allowlisted = || {
+        let mut config = base_config();
+        config.upstream.allowed_hosts = vec!["127.0.0.1".to_string()];
+        config
+    };
+    assert_eq!(
+        proxied_status(allowlisted(), "GET", &format!("/{upstream}/get"), vec![]).await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        proxied_status(allowlisted(), "GET", "/http://example.com/", vec![]).await,
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn test_ssrf_denylist_blocks_listed_host() {
+    let upstream = spawn_upstream().await;
+    let denying = |host: &str| {
+        let mut config = allow_loopback(base_config());
+        config.upstream.denied_hosts = vec![host.to_string()];
+        config
+    };
+    assert_eq!(
+        proxied_status(denying("127.0.0.1"), "GET", &format!("/{upstream}/get"), vec![]).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        proxied_status(denying("10.9.9.9"), "GET", &format!("/{upstream}/get"), vec![]).await,
+        StatusCode::OK
+    );
 }
