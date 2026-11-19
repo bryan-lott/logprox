@@ -69,5 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: all required jobs passed
-        run: |
-          echo '${{ toJSON(needs) }}' | jq -e 'all(.[]; .result == "success")'
+        # Passed via env, not pasted into the script, so job outputs can never inject shell.
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: echo "$NEEDS" | jq -e 'all(.[]; .result == "success")'
