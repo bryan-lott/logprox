@@ -22,6 +22,54 @@ fn create_test_app(config: Config) -> Router {
         .with_state(config)
 }
 
+/// A local stand-in for httpbin.org: the forwarding tests stay hermetic (no network, no flakes).
+/// Endpoints mirror the httpbin ones the tests used. Returns the base URL, e.g. `http://127.0.0.1:41234`.
+async fn spawn_upstream() -> String {
+    use axum::extract::{Path, Request as UpReq};
+    use axum::response::IntoResponse;
+    use axum::routing::{any, get, post};
+    use axum::Json;
+
+    async fn echo(req: UpReq) -> Json<serde_json::Value> {
+        let headers: serde_json::Map<String, serde_json::Value> = req
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or_default().into()))
+            .collect();
+        let method = req.method().to_string();
+        let path = req.uri().path().to_string();
+        let body = axum::body::to_bytes(req.into_body(), usize::MAX).await.unwrap();
+        let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap_or(serde_json::Value::Null);
+        Json(serde_json::json!({ "method": method, "path": path, "headers": headers, "json": json }))
+    }
+    async fn status(Path(code): Path<u16>) -> impl IntoResponse {
+        StatusCode::from_u16(code).unwrap()
+    }
+    async fn delay(Path(secs): Path<u64>) -> &'static str {
+        tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+        "done"
+    }
+
+    let app = Router::new()
+        .route("/get", get(echo))
+        .route("/post", post(echo))
+        .route("/put", axum::routing::put(echo))
+        .route("/delete", axum::routing::delete(echo))
+        .route("/headers", any(echo))
+        .route("/status/:code", any(status))
+        .route("/delay/:secs", any(delay));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{addr}")
+}
+
+/// The proxy blocks loopback upstreams by default (SSRF guard); the local upstream needs it allowed.
+fn allow_loopback(mut config: Config) -> Config {
+    config.upstream.allow_private_networks = true;
+    config
+}
+
 #[tokio::test]
 async fn test_health_check() {
     let config = Arc::new(ConfigHolder::new(Config {
@@ -154,12 +202,12 @@ async fn test_proxy_handler_drop_request() {
 
 #[tokio::test]
 async fn test_forward_get_request() {
-    let config = load_test_config();
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(load_test_config()));
 
     let req = Request::builder()
         .method("GET")
-        .uri("/https://httpbin.org/get")
+        .uri(format!("/{upstream}/get"))
         .body(Body::empty())
         .unwrap();
 
@@ -168,18 +216,19 @@ async fn test_forward_get_request() {
 
     let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["url"], "https://httpbin.org/get");
+    assert_eq!(json["method"], "GET");
+    assert_eq!(json["path"], "/get");
 }
 
 #[tokio::test]
 async fn test_forward_post_request() {
-    let config = load_test_config();
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(load_test_config()));
 
     let test_body = r#"{"test": "data"}"#;
     let req = Request::builder()
         .method("POST")
-        .uri("/https://httpbin.org/post")
+        .uri(format!("/{upstream}/post"))
         .header("content-type", "application/json")
         .body(Body::from(test_body))
         .unwrap();
@@ -194,30 +243,33 @@ async fn test_forward_post_request() {
 
 #[tokio::test]
 async fn test_forward_various_methods() {
-    let config = load_test_config();
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(load_test_config()));
 
     let methods = [("GET", "get"), ("PUT", "put"), ("DELETE", "delete")];
     for (method, path) in methods {
         let req = Request::builder()
             .method(method)
-            .uri(&format!("/https://httpbin.org/{}", path))
+            .uri(format!("/{upstream}/{path}"))
             .body(Body::empty())
             .unwrap();
 
         let resp = app.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["method"], method);
     }
 }
 
 #[tokio::test]
 async fn test_header_forwarding() {
-    let config = load_test_config();
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(load_test_config()));
 
     let req = Request::builder()
         .method("GET")
-        .uri("/https://httpbin.org/headers")
+        .uri(format!("/{upstream}/headers"))
         .header("x-custom-header", "test-value")
         .body(Body::empty())
         .unwrap();
@@ -225,19 +277,19 @@ async fn test_header_forwarding() {
     let resp = app.oneshot(req).await.unwrap();
     let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["headers"]["X-Custom-Header"], "test-value");
+    assert_eq!(json["headers"]["x-custom-header"], "test-value");
 }
 
 #[tokio::test]
 async fn test_forward_various_status_codes() {
-    let config = load_test_config();
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(load_test_config()));
 
     let status_tests = [200, 404, 500, 503];
     for status in status_tests {
         let req = Request::builder()
             .method("GET")
-            .uri(&format!("/https://httpbin.org/status/{}", status))
+            .uri(format!("/{upstream}/status/{status}"))
             .body(Body::empty())
             .unwrap();
 
@@ -255,7 +307,7 @@ async fn test_timeout_with_short_timeout() {
             rules: vec![LoggingRule {
                 name: "Short timeout".into(),
                 match_conditions: MatchConditions {
-                    path: PathMatch { patterns: vec!["httpbin.org/delay.*".to_string()] },
+                    path: PathMatch { patterns: vec!["/delay/.*".to_string()] },
                     methods: vec![],
                     headers: HashMap::new(),
                     body: BodyMatch { patterns: vec![] },
@@ -267,7 +319,7 @@ async fn test_timeout_with_short_timeout() {
                     path: true,
                     timing: true,
                 },
-                timeout: Some("2s".to_string()),
+                timeout: Some("1s".to_string()),
             }],
         },
         drop: DropConfig { default: false, rules: vec![] },
@@ -275,11 +327,12 @@ async fn test_timeout_with_short_timeout() {
         upstream: Default::default(),
     };
 
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(config));
 
     let req = Request::builder()
         .method("GET")
-        .uri("/https://httpbin.org/delay/10")
+        .uri(format!("/{upstream}/delay/5"))
         .body(Body::empty())
         .unwrap();
 
@@ -300,7 +353,7 @@ async fn test_timeout_with_no_timeout_rule() {
             rules: vec![LoggingRule {
                 name: "No timeout".into(),
                 match_conditions: MatchConditions {
-                    path: PathMatch { patterns: vec!["httpbin.org/.*".to_string()] },
+                    path: PathMatch { patterns: vec!["/delay/.*".to_string()] },
                     methods: vec![],
                     headers: HashMap::new(),
                     body: BodyMatch { patterns: vec![] },
@@ -320,11 +373,12 @@ async fn test_timeout_with_no_timeout_rule() {
         upstream: Default::default(),
     };
 
-    let app = create_test_app(config);
+    let upstream = spawn_upstream().await;
+    let app = create_test_app(allow_loopback(config));
 
     let req = Request::builder()
         .method("GET")
-        .uri("/https://httpbin.org/delay/1")
+        .uri(format!("/{upstream}/delay/1"))
         .body(Body::empty())
         .unwrap();
 
