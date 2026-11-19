@@ -1,11 +1,7 @@
 use axum::http::{Method, Uri};
 use logprox::config::*;
 
-fn create_test_request(
-    method: Method,
-    path: &str,
-    headers: Vec<(&str, &str)>,
-) -> axum::extract::Request {
+fn create_test_request(method: Method, path: &str, headers: Vec<(&str, &str)>) -> axum::extract::Request {
     let mut req_builder = axum::http::Request::builder()
         .method(method)
         .uri(Uri::try_from(path).unwrap());
@@ -49,57 +45,34 @@ fn test_config_yaml() {
     let unauthorized_rule = &config.drop.rules[1];
     assert_eq!(unauthorized_rule.name, "Drop unauthorized requests");
     assert_eq!(
-        unauthorized_rule
-            .match_conditions
-            .headers
-            .get("authorization")
-            .unwrap(),
+        unauthorized_rule.match_conditions.headers.get("authorization").unwrap(),
         ".*"
     );
-    assert_eq!(
-        unauthorized_rule.match_conditions.path.patterns,
-        vec!["/admin.*"]
-    );
+    assert_eq!(unauthorized_rule.match_conditions.path.patterns, vec!["/admin.*"]);
     assert_eq!(unauthorized_rule.response.status_code, 403);
-    assert_eq!(
-        unauthorized_rule.response.body,
-        Some("Access denied.".to_string())
-    );
+    assert_eq!(unauthorized_rule.response.body, Some("Access denied.".to_string()));
 
     // Check first rule - API requests
     let api_rule = &config.logging.rules[0];
     assert_eq!(api_rule.name, "Log API requests with timeout");
     assert_eq!(api_rule.match_conditions.methods, vec!["POST", "PUT"]);
     assert_eq!(
-        api_rule
-            .match_conditions
-            .headers
-            .get("content-type")
-            .unwrap(),
+        api_rule.match_conditions.headers.get("content-type").unwrap(),
         "application/json.*"
     );
-    assert!(api_rule
-        .capture
-        .headers
-        .contains(&"content-type".to_string()));
+    assert!(api_rule.capture.headers.contains(&"content-type".to_string()));
     assert!(api_rule.capture.headers.contains(&"user-agent".to_string()));
     assert!(api_rule.capture.body);
     assert!(api_rule.capture.method);
     assert!(api_rule.capture.path);
     assert!(api_rule.capture.timing);
     assert_eq!(api_rule.timeout, Some("30s".to_string()));
-    assert_eq!(
-        api_rule.parse_timeout(),
-        Some(std::time::Duration::from_secs(30))
-    );
+    assert_eq!(api_rule.parse_timeout(), Some(std::time::Duration::from_secs(30)));
 
     // Check second rule - Health checks
     let health_rule = &config.logging.rules[1];
     assert_eq!(health_rule.name, "Log health checks");
-    assert_eq!(
-        health_rule.match_conditions.path.patterns,
-        vec!["^/health$"]
-    );
+    assert_eq!(health_rule.match_conditions.path.patterns, vec!["^/health$"]);
     assert!(health_rule.match_conditions.methods.is_empty());
     assert!(health_rule.match_conditions.headers.is_empty());
     assert!(health_rule.capture.timing);
@@ -145,11 +118,7 @@ fn test_should_drop_request() {
     assert!(drop_resp.body.is_some());
 
     // Test matching unauthorized admin
-    let admin_req = create_test_request(
-        Method::GET,
-        "/admin/dashboard",
-        vec![("authorization", "Bearer token")],
-    );
+    let admin_req = create_test_request(Method::GET, "/admin/dashboard", vec![("authorization", "Bearer token")]);
     let drop_resp = config.should_drop_request(&admin_req, "").unwrap();
     assert_eq!(drop_resp.status_code, 403);
 
@@ -203,11 +172,7 @@ fn test_matches_rule_headers() {
     let config = Config::from_file("config.yaml").unwrap();
 
     // Test header match
-    let req = create_test_request(
-        Method::GET,
-        "/test",
-        vec![("content-type", "application/json")],
-    );
+    let req = create_test_request(Method::GET, "/test", vec![("content-type", "application/json")]);
     let mut headers = std::collections::HashMap::new();
     headers.insert("content-type".to_string(), "application/json.*".to_string());
     let conditions = MatchConditions {
@@ -561,9 +526,7 @@ fn test_should_log_response() {
         },
         upstream: Default::default(),
     };
-    assert!(config_with_default
-        .should_log_response(200, &headers, "")
-        .is_some());
+    assert!(config_with_default.should_log_response(200, &headers, "").is_some());
 }
 
 #[test]

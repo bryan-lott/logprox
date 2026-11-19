@@ -1,9 +1,7 @@
 pub mod config;
 pub mod handlers;
 
-use axum::{
-    routing::{get, post, Router},
-};
+use axum::routing::{get, post, Router};
 use config::{Config, ConfigHolder};
 use std::sync::Arc;
 use tracing::{info, Level};
@@ -11,10 +9,7 @@ use tracing::{info, Level};
 #[tokio::main]
 async fn main() {
     // Initialize logging
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .json()
-        .init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).json().init();
 
     // Load configuration
     let config_file = std::env::var("CONFIG_FILE").unwrap_or_else(|_| "config.yaml".to_string());

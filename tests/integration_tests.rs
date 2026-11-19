@@ -1,7 +1,10 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use logprox::config::{Config, ConfigHolder, ServerConfig, LoggingConfig, DropConfig, DropRule, MatchConditions, PathMatch, BodyMatch, DropResponse, ResponseLoggingConfig, LoggingRule, CaptureConfig};
+use logprox::config::{
+    BodyMatch, CaptureConfig, Config, ConfigHolder, DropConfig, DropResponse, DropRule, LoggingConfig, LoggingRule,
+    MatchConditions, PathMatch, ResponseLoggingConfig, ServerConfig,
+};
 use logprox::{get_config, get_config_docs, get_health_check, proxy_handler, reload_config};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -74,9 +77,18 @@ fn allow_loopback(mut config: Config) -> Config {
 async fn test_health_check() {
     let config = Arc::new(ConfigHolder::new(Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     }));
     let app = Router::new()
@@ -100,9 +112,18 @@ async fn test_health_check() {
 async fn test_get_config() {
     let config = Arc::new(ConfigHolder::new(Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     }));
     let app = Router::new()
@@ -129,9 +150,18 @@ async fn test_get_config() {
 async fn test_get_config_docs() {
     let config = Arc::new(ConfigHolder::new(Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     }));
 
@@ -162,30 +192,36 @@ async fn test_get_config_docs() {
 async fn test_proxy_handler_drop_request() {
     let config = Arc::new(ConfigHolder::new(Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         drop: DropConfig {
             default: false,
             rules: vec![DropRule {
                 name: "Test drop".to_string(),
                 match_conditions: MatchConditions {
-                    path: PathMatch { patterns: vec!["/drop.*".to_string()] },
+                    path: PathMatch {
+                        patterns: vec!["/drop.*".to_string()],
+                    },
                     methods: vec![],
                     headers: HashMap::new(),
                     body: BodyMatch { patterns: vec![] },
                 },
                 response: DropResponse {
                     status_code: 403,
-                     body: Some("Dropped".to_string()),
+                    body: Some("Dropped".to_string()),
                 },
             }],
         },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     }));
 
-    let app = Router::new()
-        .fallback(proxy_handler)
-        .with_state(config);
+    let app = Router::new().fallback(proxy_handler).with_state(config);
 
     let req = Request::builder()
         .method("GET")
@@ -307,7 +343,9 @@ async fn test_timeout_with_short_timeout() {
             rules: vec![LoggingRule {
                 name: "Short timeout".into(),
                 match_conditions: MatchConditions {
-                    path: PathMatch { patterns: vec!["/delay/.*".to_string()] },
+                    path: PathMatch {
+                        patterns: vec!["/delay/.*".to_string()],
+                    },
                     methods: vec![],
                     headers: HashMap::new(),
                     body: BodyMatch { patterns: vec![] },
@@ -322,8 +360,14 @@ async fn test_timeout_with_short_timeout() {
                 timeout: Some("1s".to_string()),
             }],
         },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     };
 
@@ -353,7 +397,9 @@ async fn test_timeout_with_no_timeout_rule() {
             rules: vec![LoggingRule {
                 name: "No timeout".into(),
                 match_conditions: MatchConditions {
-                    path: PathMatch { patterns: vec!["/delay/.*".to_string()] },
+                    path: PathMatch {
+                        patterns: vec!["/delay/.*".to_string()],
+                    },
                     methods: vec![],
                     headers: HashMap::new(),
                     body: BodyMatch { patterns: vec![] },
@@ -368,8 +414,14 @@ async fn test_timeout_with_no_timeout_rule() {
                 timeout: None,
             }],
         },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     };
 
@@ -390,9 +442,18 @@ async fn test_timeout_with_no_timeout_rule() {
 async fn test_upstream_error_handling() {
     let config = Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     };
 
@@ -412,9 +473,18 @@ async fn test_upstream_error_handling() {
 async fn test_malformed_upstream_url() {
     let config = Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     };
 
@@ -434,19 +504,24 @@ async fn test_malformed_upstream_url() {
 async fn test_empty_upstream_url() {
     let config = Config {
         server: ServerConfig { port: 3000 },
-        logging: LoggingConfig { default: false, rules: vec![] },
-        drop: DropConfig { default: false, rules: vec![] },
-        response_logging: ResponseLoggingConfig { default: false, rules: vec![] },
+        logging: LoggingConfig {
+            default: false,
+            rules: vec![],
+        },
+        drop: DropConfig {
+            default: false,
+            rules: vec![],
+        },
+        response_logging: ResponseLoggingConfig {
+            default: false,
+            rules: vec![],
+        },
         upstream: Default::default(),
     };
 
     let app = create_test_app(config);
 
-    let req = Request::builder()
-        .method("GET")
-        .uri("/")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::builder().method("GET").uri("/").body(Body::empty()).unwrap();
 
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);

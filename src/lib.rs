@@ -42,7 +42,7 @@
 pub mod config;
 pub mod handlers;
 
-pub use handlers::{get_health_check, get_config, get_config_docs, reload_config, proxy_handler};
+pub use handlers::{get_config, get_config_docs, get_health_check, proxy_handler, reload_config};
 
 #[doc(hidden)]
 pub use handlers::proxy::{extract_upstream_url, parse_duration_string};

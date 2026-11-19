@@ -1,8 +1,8 @@
 use parking_lot::{RwLock, RwLockReadGuard};
-use std::sync::LazyLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 pub mod request;
 pub mod response;
@@ -122,8 +122,7 @@ impl ConfigHolder {
     }
 
     pub fn reload(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let config_file =
-            std::env::var("CONFIG_FILE").unwrap_or_else(|_| "config.yaml".to_string());
+        let config_file = std::env::var("CONFIG_FILE").unwrap_or_else(|_| "config.yaml".to_string());
         let new_config = Config::from_file(&config_file)?;
         let mut config = self.config.write();
         *config = new_config;
@@ -138,19 +137,31 @@ impl ConfigHolder {
 /// Pre-warm the global regex cache with every pattern in the config.
 /// Invalid patterns are silently skipped (they will never match).
 fn prewarm_regex_cache(config: &Config) {
-    let all_patterns = config.logging.rules.iter()
+    let all_patterns = config
+        .logging
+        .rules
+        .iter()
         .flat_map(|r| {
-            r.match_conditions.path.patterns.iter()
+            r.match_conditions
+                .path
+                .patterns
+                .iter()
                 .chain(r.match_conditions.body.patterns.iter())
                 .chain(r.match_conditions.headers.values())
         })
         .chain(config.drop.rules.iter().flat_map(|r| {
-            r.match_conditions.path.patterns.iter()
+            r.match_conditions
+                .path
+                .patterns
+                .iter()
                 .chain(r.match_conditions.body.patterns.iter())
                 .chain(r.match_conditions.headers.values())
         }))
         .chain(config.response_logging.rules.iter().flat_map(|r| {
-            r.match_conditions.body.patterns.iter()
+            r.match_conditions
+                .body
+                .patterns
+                .iter()
                 .chain(r.match_conditions.headers.values())
         }));
 
@@ -212,9 +223,7 @@ impl Config {
 
     /// Match `text` against `pattern` using the global compiled-regex cache.
     fn match_pattern(pattern: &str, text: &str) -> bool {
-        get_cached_regex(pattern)
-            .map(|re| re.is_match(text))
-            .unwrap_or(false)
+        get_cached_regex(pattern).map(|re| re.is_match(text)).unwrap_or(false)
     }
 
     fn substitute_env_vars(&mut self) {
@@ -238,29 +247,22 @@ impl Config {
     // Public matching methods — Request-based (used by tests and direct callers)
     // -----------------------------------------------------------------------
 
-    pub fn should_log_request(
-        &self,
-        req: &axum::extract::Request,
-        body_content: &str,
-    ) -> Option<&CaptureConfig> {
+    pub fn should_log_request(&self, req: &axum::extract::Request, body_content: &str) -> Option<&CaptureConfig> {
         self.should_log_request_parts(req.method().as_str(), req.uri().path(), req.headers(), body_content)
     }
 
-    pub fn should_drop_request(
-        &self,
-        req: &axum::extract::Request,
-        body_content: &str,
-    ) -> Option<DropResponse> {
+    pub fn should_drop_request(&self, req: &axum::extract::Request, body_content: &str) -> Option<DropResponse> {
         self.should_drop_request_parts(req.method().as_str(), req.uri().path(), req.headers(), body_content)
     }
 
-    pub fn matches_rule(
-        &self,
-        req: &axum::extract::Request,
-        conditions: &MatchConditions,
-        body_content: &str,
-    ) -> bool {
-        self.matches_conditions_parts(req.method().as_str(), req.uri().path(), req.headers(), body_content, conditions)
+    pub fn matches_rule(&self, req: &axum::extract::Request, conditions: &MatchConditions, body_content: &str) -> bool {
+        self.matches_conditions_parts(
+            req.method().as_str(),
+            req.uri().path(),
+            req.headers(),
+            body_content,
+            conditions,
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -335,9 +337,7 @@ impl Config {
         conditions: &MatchConditions,
     ) -> bool {
         // Method check
-        if !conditions.methods.is_empty()
-            && !conditions.methods.iter().any(|m| m.eq_ignore_ascii_case(method))
-        {
+        if !conditions.methods.is_empty() && !conditions.methods.iter().any(|m| m.eq_ignore_ascii_case(method)) {
             return false;
         }
 
@@ -363,7 +363,11 @@ impl Config {
 
         // Body check
         if !conditions.body.patterns.is_empty()
-            && !conditions.body.patterns.iter().any(|p| Self::match_pattern(p, body_content))
+            && !conditions
+                .body
+                .patterns
+                .iter()
+                .any(|p| Self::match_pattern(p, body_content))
         {
             return false;
         }
@@ -419,7 +423,11 @@ impl Config {
         }
 
         if !conditions.body.patterns.is_empty()
-            && !conditions.body.patterns.iter().any(|p| Self::match_pattern(p, body_content))
+            && !conditions
+                .body
+                .patterns
+                .iter()
+                .any(|p| Self::match_pattern(p, body_content))
         {
             return false;
         }

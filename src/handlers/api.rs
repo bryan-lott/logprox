@@ -1,10 +1,10 @@
+use crate::config::ConfigHolder;
 use axum::{
     body::Body,
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use crate::config::ConfigHolder;
 use serde_json;
 use std::sync::Arc;
 

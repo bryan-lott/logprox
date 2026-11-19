@@ -79,8 +79,7 @@ fn bench_string_allocations(c: &mut Criterion) {
             // Optimized code (no allocations)
             let _method_str = method; // &str
             let _path_str = path; // &str
-            let _body_str =
-                std::string::String::from_utf8_lossy(body_bytes);
+            let _body_str = std::string::String::from_utf8_lossy(body_bytes);
 
             black_box(())
         });
@@ -159,11 +158,8 @@ fn bench_header_processing(c: &mut Criterion) {
                     .iter()
                     .any(|h| h.eq_ignore_ascii_case(name_str))
                 {
-                    if let Ok(key) =
-                        reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes())
-                    {
-                        if let Ok(val) = reqwest::header::HeaderValue::from_bytes(value.as_bytes())
-                        {
+                    if let Ok(key) = reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes()) {
+                        if let Ok(val) = reqwest::header::HeaderValue::from_bytes(value.as_bytes()) {
                             result.insert(key, val);
                         }
                     }
@@ -185,11 +181,8 @@ fn bench_header_processing(c: &mut Criterion) {
                     .iter()
                     .any(|h| h.eq_ignore_ascii_case(name.as_str()))
                 {
-                    if let Ok(key) =
-                        reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes())
-                    {
-                        if let Ok(val) = reqwest::header::HeaderValue::from_bytes(value.as_bytes())
-                        {
+                    if let Ok(key) = reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes()) {
+                        if let Ok(val) = reqwest::header::HeaderValue::from_bytes(value.as_bytes()) {
                             result.insert(key, val);
                         }
                     }

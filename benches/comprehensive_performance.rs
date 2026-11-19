@@ -1,16 +1,20 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn bench_regex_optimization(c: &mut Criterion) {
-    let patterns = [r"\d+",
+    let patterns = [
+        r"\d+",
         r"/api/v[0-9]+/.*",
         r"user_[a-zA-Z0-9]+",
         r"Bearer .*",
-        r"application/json"];
-    let test_strings = ["12345",
+        r"application/json",
+    ];
+    let test_strings = [
+        "12345",
         "/api/v1/users/123",
         "user_admin123",
         "Bearer token123",
-        "application/json"];
+        "application/json",
+    ];
 
     let mut group = c.benchmark_group("regex_optimization");
 
