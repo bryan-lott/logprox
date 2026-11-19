@@ -1,20 +1,16 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn bench_regex_optimization(c: &mut Criterion) {
-    let patterns = vec![
-        r"\d+",
+    let patterns = [r"\d+",
         r"/api/v[0-9]+/.*",
         r"user_[a-zA-Z0-9]+",
         r"Bearer .*",
-        r"application/json",
-    ];
-    let test_strings = vec![
-        "12345",
+        r"application/json"];
+    let test_strings = ["12345",
         "/api/v1/users/123",
         "user_admin123",
         "Bearer token123",
-        "application/json",
-    ];
+        "application/json"];
 
     let mut group = c.benchmark_group("regex_optimization");
 
@@ -76,8 +72,13 @@ fn bench_memory_optimization(c: &mut Criterion) {
 
     group.bench_function("vec_with_capacity", |b| {
         b.iter(|| {
-            let mut buf = Vec::with_capacity(4096);
-            buf.resize(4096, 0);
+            // Deliberately the with_capacity + resize path, to compare against vec![0; N] above.
+            #[allow(clippy::slow_vector_initialization)]
+            let buf = {
+                let mut buf = Vec::with_capacity(4096);
+                buf.resize(4096, 0u8);
+                buf
+            };
             black_box(buf);
         });
     });

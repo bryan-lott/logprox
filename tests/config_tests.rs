@@ -25,11 +25,11 @@ fn test_config_yaml() {
     assert_eq!(config.server.port, 3000);
 
     // Verify logging rules
-    assert_eq!(config.logging.default, false);
+    assert!(!config.logging.default);
     assert_eq!(config.logging.rules.len(), 3);
 
     // Verify drop rules
-    assert_eq!(config.drop.default, false);
+    assert!(!config.drop.default);
     assert_eq!(config.drop.rules.len(), 3);
 
     // Check first drop rule - deprecated API
@@ -346,7 +346,7 @@ fn test_config_holder() {
 
     {
         let config = holder.get();
-        assert_eq!(config.logging.default, false);
+        assert!(!config.logging.default);
     }
 
     let reload_result = holder.reload();
@@ -415,7 +415,7 @@ response_logging:
     assert!(reload_result.is_ok());
 
     let reloaded = holder.get();
-    assert_eq!(reloaded.logging.default, true);
+    assert!(reloaded.logging.default);
 
     std::env::remove_var("CONFIG_FILE");
 }

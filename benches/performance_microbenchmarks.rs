@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use logprox::config::{BodyMatch, Config, MatchConditions, PathMatch};
-use std::collections::HashMap;
-use std::time::Duration;
+use logprox::config::Config;
 
 fn bench_regex_compilation(c: &mut Criterion) {
     let mut group = c.benchmark_group("regex_compilation");
@@ -82,7 +80,7 @@ fn bench_string_allocations(c: &mut Criterion) {
             let _method_str = method; // &str
             let _path_str = path; // &str
             let _body_str =
-                std::borrow::Cow::from(std::string::String::from_utf8_lossy(body_bytes));
+                std::string::String::from_utf8_lossy(body_bytes);
 
             black_box(())
         });
@@ -138,7 +136,7 @@ fn bench_config_locking(c: &mut Criterion) {
 }
 
 fn bench_header_processing(c: &mut Criterion) {
-    use axum::http::{HeaderMap, HeaderName, HeaderValue};
+    use axum::http::{HeaderMap, HeaderValue};
 
     let mut group = c.benchmark_group("header_processing");
 
@@ -206,7 +204,7 @@ fn bench_header_processing(c: &mut Criterion) {
 }
 
 // Mock ConfigHolder for testing
-use logprox::config::{ConfigHolder, DropConfig, LoggingConfig};
+use logprox::config::ConfigHolder;
 
 criterion_group!(
     benches,
