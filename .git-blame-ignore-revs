@@ -1,0 +1,5 @@
+# Formatting-only commits; git blame skips them.
+# Locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# cargo fmt --all (max_width = 120)
+63ccf0bceb3622c648dd24fcc69ca8644aa3a5e2

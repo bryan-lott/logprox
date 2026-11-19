@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Block commits whose Rust code is not rustfmt-formatted. CI runs the same check.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Fix:                    cargo fmt --all
+# Checks the working tree, so partially staged files are judged as they are on disk.
+# Skip once:              git commit --no-verify
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+# Nothing Rust-related staged: nothing to check.
+git diff --cached --quiet -- '*.rs' 'rustfmt.toml' '.rustfmt.toml' && exit 0
+# Hooks can run with a minimal PATH (GUI clients, IDEs): look where rustup installs too.
+PATH="$PATH:${CARGO_HOME:-$HOME/.cargo}/bin"
+if ! command -v cargo >/dev/null; then
+    echo "pre-commit: cargo not found; cannot check formatting (skip once with --no-verify)"
+    exit 1
+fi
+status=0
+for manifest in Cargo.toml; do
+    if ! out=$(cargo fmt --manifest-path "$manifest" --all --check 2>&1); then
+        echo "$out" | grep -E '^Diff in' | sed 's/^/pre-commit: /'
+        echo "pre-commit: not rustfmt-formatted ($manifest). Run: cargo fmt --manifest-path $manifest --all"
+        status=1
+    fi
+done
+exit $status
